@@ -434,7 +434,6 @@ Best,
 Bodhi
 
 [PLATFORM] Expert | Top-rated Developer
-Portfolio: https://online.fliphtml5.com/hbbqc/unva/"
 
 Replace [PLATFORM] with exactly one:
 
