@@ -269,13 +269,6 @@ export default function Page() {
                         {loading && (
                             <p className="mt-5 text-blue-400">Importing opportunities...</p>
                         )}
-
-                        {/* <button
-                            onClick={saveJobsToDB}
-                            className="mt-6 bg-blue-600 text-white px-6 py-3 rounded-full"
-                        >
-                            Save Jobs to MongoDB
-                        </button> */}
                     </div>
                 </section>
 
