@@ -1,69 +1,69 @@
-import {NextResponse} from "next/server";
-import {connectDB} from "@/lib/mongodb";
+import { NextResponse } from "next/server";
+import { connectDB } from "@/lib/mongodb";
 import User from "@/lib/models/User";
 
 
 export async function GET(
-req:Request,
-context:any
-){
+    req: Request,
+    context: any
+) {
 
-try{
+    try {
 
-await connectDB();
-
-
-const {id}=await context.params;
+        await connectDB();
 
 
-const user=await User.findById(id)
-.select("-password -resetToken -resetTokenExpiry");
+        const { id } = await context.params;
 
 
-if(!user){
-
-return NextResponse.json(
-{
-error:"User not found"
-},
-{
-status:404
-}
-);
-
-}
+        const user = await User.findById(id)
+            .select("-password -resetToken -resetTokenExpiry");
 
 
-return NextResponse.json({
+        if (!user) {
 
-id:user._id,
-name:user.name,
-email:user.email,
-phone:user.phone,
-dob:user.dob,
-address:user.address,
-state:user.state,
-pin:user.pin,
-gender:user.gender,
-role:user.role
+            return NextResponse.json(
+                {
+                    error: "User not found"
+                },
+                {
+                    status: 404
+                }
+            );
 
-});
+        }
 
 
-}
-catch(error){
+        return NextResponse.json({
 
-console.log(error);
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            dob: user.dob,
+            address: user.address,
+            state: user.state,
+            pin: user.pin,
+            gender: user.gender,
+            role: user.role
 
-return NextResponse.json(
-{
-error:"Profile API failed"
-},
-{
-status:500
-}
-);
+        });
 
-}
+
+    }
+    catch (error) {
+
+        console.log(error);
+
+        return NextResponse.json(
+            {
+                error: "Profile API failed"
+            },
+            {
+                status: 500
+            }
+        );
+
+    }
 
 }
