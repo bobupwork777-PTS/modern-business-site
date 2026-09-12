@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: #ffffff;
+  color: #111827;
+}
+
+@keyframes scan {
+
+0%{
+transform:translateY(-120%);
+}
+
+100%{
+transform:translateY(500%);
+}
+
+}
+
+
+
+@keyframes particle {
+
+0%{
+transform:translateY(0);
+opacity:0;
+}
+
+40%{
+opacity:1;
+}
+
+100%{
+transform:translateY(-180px) translateX(80px);
+opacity:0;
+}
+
+}
+
+
+
+@keyframes corePulse {
+
+0%,100%{
+transform:translate(-50%,-50%) scale(1);
+}
+
+50%{
+transform:translate(-50%,-50%) scale(1.15);
+}
+
+}
+
+
+
+@keyframes gradientMove {
+
+0%{
+background-position:0% 50%;
+}
+
+50%{
+background-position:100% 50%;
+}
+
+100%{
+background-position:0% 50%;
+}
+
+}
+
+
+.animate-gradient{
+
+background-size:200% 200%;
+animation:gradientMove 5s ease infinite;
+
+}
