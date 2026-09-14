@@ -2,40 +2,23 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import User from "@/lib/models/User";
 
-
-export async function GET(
-    req: Request,
-    context: any
-) {
-
+export async function GET(req: Request, context: any) {
     try {
-
         await connectDB();
 
-
         const { id } = await context.params;
-
 
         const user = await User.findById(id)
             .select("-password -resetToken -resetTokenExpiry");
 
-
         if (!user) {
-
             return NextResponse.json(
-                {
-                    error: "User not found"
-                },
-                {
-                    status: 404
-                }
+                { error: "User not found" },
+                { status: 404 }
             );
-
         }
 
-
         return NextResponse.json({
-
             id: user._id,
             name: user.name,
             email: user.email,
@@ -46,24 +29,13 @@ export async function GET(
             pin: user.pin,
             gender: user.gender,
             role: user.role
-
         });
-
-
-    }
-    catch (error) {
-
-        console.log(error);
+    } catch (error) {
+        console.error(error);
 
         return NextResponse.json(
-            {
-                error: "Profile API failed"
-            },
-            {
-                status: 500
-            }
+            { error: "Profile API failed" },
+            { status: 500 }
         );
-
     }
-
 }
