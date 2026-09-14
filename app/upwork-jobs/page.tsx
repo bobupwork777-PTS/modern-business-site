@@ -926,7 +926,7 @@ export default function UpworkJobsPage() {
 
                             <span
                                 className="
-                                    text-[10px]
+                                    text-[12px]
                                     text-gray-500
                                     mr-1
                                 "
@@ -952,7 +952,7 @@ export default function UpworkJobsPage() {
                                             py-1
                                             rounded-full
                                             border
-                                            text-[10px]
+                                            text-[12px]
                                             font-medium
                                             transition
                                             ${search === item
@@ -1306,9 +1306,7 @@ export default function UpworkJobsPage() {
                                                 </label>
 
                                                 <label
-                                                    className="
-                                                        flex
-                                                        items-center
+                                                    className="flex                                                         items-center
                                                         gap-1
                                                     "
                                                 >
