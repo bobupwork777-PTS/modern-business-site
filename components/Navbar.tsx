@@ -91,10 +91,10 @@ export default function Navbar() {
                         isAdmin && (
 
                             <Link
-                                href="/ai-opportunity-analyzer"
+                                href="/upwork-jobs"
                                 className="hover:text-white transition"
                             >
-                                AI Analyzer
+                                Upwork Jobs
                             </Link>
 
                         )

@@ -1,873 +1,336 @@
-import {
-    NextRequest,
-    NextResponse
-} from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { clearUpworkTokenCache, getUpworkAccessToken } from "@/lib/upwork";
 
-import {
-    clearUpworkTokenCache,
-    getUpworkAccessToken
-} from "@/lib/upwork";
-
-const UPWORK_GRAPHQL_URL =
-    "https://api.upwork.com/graphql";
-
-/* =========================================
-   SETTINGS
-========================================= */
-
+const UPWORK_GRAPHQL_URL = "https://api.upwork.com/graphql";
 const PAGE_SIZE = 50;
 
-/*
-    Safety limit.
-    Your current search has 625,
-    so 2000 is more than enough.
-*/
-const MAX_JOBS = 2000;
-
-/*
-    Fetch up to 4 pages at the same time
-    after the first page.
-*/
-const CONCURRENT_REQUESTS = 4;
-
-/* =========================================
-   TYPES
-========================================= */
-
-type GraphQLError = {
-    message?:string;
-    path?:Array<
-        string | number
-    >;
-};
-
-type GraphQLResponse = {
-    data?:{
-        marketplaceJobPostingsSearch?:{
-            totalCount?:number;
-
-            edges?:Array<
-                {
-                    cursor?:string;
-                    node?:any;
-                } | null
-            >;
-        } | null;
-    };
-
-    errors?:GraphQLError[];
-};
-
-/* =========================================
-   GRAPHQL QUERY
-
-   IMPORTANT:
-
-   NO:
-   pageInfo
-
-   NO:
-   node.amount
-
-   Activity:
-   node.job.activityStat.jobActivity
-
-   Fixed Price:
-   node.job.contractTerms
-       .fixedPriceContractTerms.amount
-========================================= */
-
-const SEARCH_JOBS_QUERY = `
+const QUERY = `
 query SearchJobs(
-    $filter: MarketplaceJobPostingsSearchFilter
-){
-    marketplaceJobPostingsSearch(
-        marketPlaceJobFilter: $filter
-        searchType: USER_JOBS_SEARCH
-        sortAttributes: [
-            {
-                field: RECENCY
-            }
-        ]
-    ){
-        totalCount
+  $filter: MarketplaceJobPostingsSearchFilter
+  $type: MarketplaceJobPostingSearchType
+  $sort: [MarketplaceJobPostingSearchSortAttribute]
+) {
+  marketplaceJobPostingsSearch(
+    marketPlaceJobFilter: $filter
+    searchType: $type
+    sortAttributes: $sort
+  ) {
+    totalCount
+    edges {
+      cursor
+      node {
+        id
+        title
+        description
+        ciphertext
+        applied
+        premium
+        publishedDateTime
+        totalApplicants
 
-        edges{
-            cursor
-
-            node{
-                id
-                title
-                description
-                ciphertext
-                applied
-                createdDateTime
-                publishedDateTime
-                totalApplicants
-
-                hourlyBudgetMin{
-                    displayValue
-                    currency
-                }
-
-                hourlyBudgetMax{
-                    displayValue
-                    currency
-                }
-
-                client{
-                    totalFeedback
-                    totalReviews
-                    totalHires
-                    totalPostedJobs
-                    verificationStatus
-                    companyRid
-
-                    totalSpent{
-                        displayValue
-                        currency
-                    }
-
-                    location{
-                        country
-                        city
-                        timezone
-                    }
-                }
-
-                job{
-
-                    activityStat{
-
-                        jobActivity{
-                            lastClientActivity
-                            invitesSent
-                            totalInvitedToInterview
-                            totalHired
-                            totalUnansweredInvites
-                            totalOffered
-                            totalRecommended
-                        }
-                    }
-
-                    contractTerms{
-                        contractType
-
-                        fixedPriceContractTerms{
-
-                            amount{
-                                displayValue
-                                currency
-                            }
-
-                            maxAmount{
-                                displayValue
-                                currency
-                            }
-                        }
-                    }
-                }
-            }
+        freelancerClientRelation {
+          companyRid
+          companyName
+          lastContractPlatform
+          lastContractRid
+          lastContractTitle
         }
+
+        amount {
+          displayValue
+          currency
+        }
+
+        hourlyBudgetMin {
+          displayValue
+          currency
+        }
+
+        hourlyBudgetMax {
+          displayValue
+          currency
+        }
+
+        client {
+          totalFeedback
+          totalReviews
+          totalHires
+          totalPostedJobs
+          verificationStatus
+
+          totalSpent {
+            displayValue
+            currency
+          }
+
+          location {
+            country
+            city
+            timezone
+          }
+        }
+
+        job {
+          activityStat {
+            jobActivity {
+              lastClientActivity
+              invitesSent
+              totalInvitedToInterview
+              totalHired
+              totalUnansweredInvites
+            }
+          }
+        }
+      }
     }
+
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+  }
 }
 `;
 
-/* =========================================
-   GRAPHQL REQUEST
-========================================= */
+type PageInfo = {
+  endCursor?: string | null;
+  hasNextPage?: boolean;
+};
 
-async function executeGraphQL(
-    variables:any,
-    retry=true
-):Promise<GraphQLResponse>{
+type GraphQLResult = {
+  totalCount?: number;
+  edges?: any[];
+  pageInfo?: PageInfo;
+};
 
-    let accessToken =
-        await getUpworkAccessToken();
-
-    let response =
-        await fetch(
-            UPWORK_GRAPHQL_URL,
-            {
-                method:"POST",
-
-                headers:{
-                    Authorization:
-                        `Bearer ${accessToken}`,
-
-                    "Content-Type":
-                        "application/json",
-
-                    Accept:
-                        "application/json"
-                },
-
-                body:
-                    JSON.stringify({
-                        query:
-                            SEARCH_JOBS_QUERY,
-
-                        variables
-                    }),
-
-                cache:"no-store"
-            }
-        );
-
-    /* =====================================
-       TOKEN EXPIRED
-    ===================================== */
-
-    if(
-        response.status === 401 &&
-        retry
-    ){
-
-        clearUpworkTokenCache();
-
-        accessToken =
-            await getUpworkAccessToken(
-                true
-            );
-
-        response =
-            await fetch(
-                UPWORK_GRAPHQL_URL,
-                {
-                    method:"POST",
-
-                    headers:{
-                        Authorization:
-                            `Bearer ${accessToken}`,
-
-                        "Content-Type":
-                            "application/json",
-
-                        Accept:
-                            "application/json"
-                    },
-
-                    body:
-                        JSON.stringify({
-                            query:
-                                SEARCH_JOBS_QUERY,
-
-                            variables
-                        }),
-
-                    cache:"no-store"
-                }
-            );
-    }
-
-    let result:GraphQLResponse;
-
-    try{
-
-        result =
-            await response.json();
-
-    }catch{
-
-        throw new Error(
-            `Invalid response from Upwork (${response.status})`
-        );
-    }
-
-    if(!response.ok){
-
-        console.error(
-            "Upwork HTTP Error:",
-            response.status,
-            result
-        );
-
-        throw new Error(
-            result.errors?.[0]?.message ||
-            `Upwork API returned ${response.status}`
-        );
-    }
-
-    return result;
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
-/* =========================================
-   FETCH ONE PAGE
-========================================= */
+function isTransformTimeout(error: unknown) {
+  return getErrorMessage(error).toLowerCase().includes("transform timeout");
+}
 
-async function fetchPage(
-    keyword:string,
-    offset:number
-){
+async function callUpworkGraphQL(query: string, variables: unknown, forceRefresh = false) {
+  const accessToken = await getUpworkAccessToken(forceRefresh);
 
-    const filter:any = {
+  const response = await fetch(UPWORK_GRAPHQL_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({ query, variables }),
+    cache: "no-store"
+  });
 
-        pagination_eq:{
-            after:
-                String(offset),
+  let body: any;
 
-            first:
-                PAGE_SIZE
-        }
-    };
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error(`Upwork returned an invalid response (${response.status}).`);
+  }
 
-    if(keyword){
+  if (response.status === 401 && !forceRefresh) {
+    clearUpworkTokenCache();
+    return callUpworkGraphQL(query, variables, true);
+  }
 
-        filter.searchExpression_eq =
-            keyword;
+  if (!response.ok) {
+    throw new Error(
+      body?.error_description ||
+      body?.error?.message ||
+      body?.error ||
+      `Upwork HTTP error ${response.status}`
+    );
+  }
+
+  if (Array.isArray(body?.errors) && body.errors.length) {
+    const message =
+      body.errors
+        .map((item: any) => item?.message)
+        .filter(Boolean)
+        .join(" | ") || "Upwork GraphQL error";
+
+    throw new Error(message);
+  }
+
+  return body;
+}
+
+async function fetchBatch(
+  searchExpression: string,
+  first: number,
+  after: string
+): Promise<GraphQLResult> {
+  const filter: Record<string, unknown> = {
+    pagination_eq: { first, after }
+  };
+
+  if (searchExpression.trim()) {
+    filter.searchExpression_eq = searchExpression.trim();
+  }
+
+  const variables = {
+    filter,
+    type: "USER_JOBS_SEARCH",
+    sort: [{ field: "RECENCY" }]
+  };
+
+  console.log("UPWORK FETCH:", {
+    search: searchExpression,
+    first,
+    after
+  });
+
+  const body = await callUpworkGraphQL(QUERY, variables);
+  const result = body?.data?.marketplaceJobPostingsSearch;
+
+  if (!result) {
+    throw new Error("marketplaceJobPostingsSearch returned no result.");
+  }
+
+  return result;
+}
+
+/*
+ * UI page size remains 50.
+ * Normal request: 50
+ * Timeout fallback: 25 + 25
+ */
+async function fetch50Jobs(
+  searchExpression: string,
+  after: string
+): Promise<GraphQLResult> {
+  try {
+    return await fetchBatch(searchExpression, PAGE_SIZE, after);
+  } catch (error) {
+    if (!isTransformTimeout(error)) throw error;
+
+    console.warn("50-job request timed out. Retrying as 25 + 25.");
+
+    const firstBatch = await fetchBatch(searchExpression, 25, after);
+    const firstEdges = firstBatch.edges || [];
+    const firstCursor = firstBatch.pageInfo?.endCursor;
+
+    if (!firstBatch.pageInfo?.hasNextPage || !firstCursor) {
+      return firstBatch;
     }
 
-    console.log(
-        "Upwork page request:",
-        {
-            keyword,
-            after:
-                String(offset),
+    const secondBatch = await fetchBatch(searchExpression, 25, firstCursor);
+    const secondEdges = secondBatch.edges || [];
 
-            first:
-                PAGE_SIZE
-        }
-    );
+    return {
+      totalCount: Number(firstBatch.totalCount || secondBatch.totalCount || 0),
+      edges: [...firstEdges, ...secondEdges],
+      pageInfo: {
+        endCursor: secondBatch.pageInfo?.endCursor || firstCursor,
+        hasNextPage: secondBatch.pageInfo?.hasNextPage === true
+      }
+    };
+  }
+}
+
+function formatJob(edge: any) {
+  const job = edge?.node || {};
+  const activity = job?.job?.activityStat?.jobActivity || {};
+  const relation = job?.freelancerClientRelation || null;
+
+  return {
+    id: job.id || "",
+    title: job.title || "",
+    description: job.description || "",
+    ciphertext: job.ciphertext || "",
+
+    // STATUS FIELDS
+    applied: job.applied === true,
+    premium: job.premium === true,
+    isFeatured: job.premium === true,
+    isPreviousClient: Boolean(relation),
+    freelancerClientRelation: relation,
+
+    publishedDateTime: job.publishedDateTime || null,
+    totalApplicants: Number(job.totalApplicants || 0),
+
+    amount: job.amount || null,
+    hourlyBudgetMin: job.hourlyBudgetMin || null,
+    hourlyBudgetMax: job.hourlyBudgetMax || null,
+
+    client: {
+      totalFeedback: Number(job.client?.totalFeedback || 0),
+      totalReviews: Number(job.client?.totalReviews || 0),
+      totalHires: Number(job.client?.totalHires || 0),
+      totalPostedJobs: Number(job.client?.totalPostedJobs || 0),
+      verificationStatus: job.client?.verificationStatus || "",
+      totalSpent: job.client?.totalSpent || null,
+      location: {
+        country: job.client?.location?.country || "",
+        city: job.client?.location?.city || "",
+        timezone: job.client?.location?.timezone || ""
+      }
+    },
+
+    activity: {
+      lastClientActivity: activity.lastClientActivity || null,
+      invitesSent: Number(activity.invitesSent || 0),
+      totalInvitedToInterview: Number(activity.totalInvitedToInterview || 0),
+      totalHired: Number(activity.totalHired || 0),
+      totalUnansweredInvites: Number(activity.totalUnansweredInvites || 0)
+    }
+  };
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+
+    const searchExpression = (searchParams.get("q") || "Wix").trim();
+    const after = searchParams.get("after") || "0";
+
+    const requestedFirst = Number(searchParams.get("first") || PAGE_SIZE);
+    const first = Number.isFinite(requestedFirst)
+      ? Math.min(Math.max(Math.trunc(requestedFirst), 1), PAGE_SIZE)
+      : PAGE_SIZE;
 
     const result =
-        await executeGraphQL({
-            filter
-        });
-
-    /* =====================================
-       GRAPHQL WARNINGS
-
-       If partial data exists,
-       don't kill the whole request.
-    ===================================== */
-
-    if(
-        result.errors?.length
-    ){
-
-        console.warn(
-            `Upwork GraphQL warnings at offset ${offset}:`,
-            result.errors.map(
-                error => ({
-                    message:
-                        error.message,
-
-                    path:
-                        error.path
-                })
-            )
-        );
-    }
-
-    const searchResult =
-        result.data
-            ?.marketplaceJobPostingsSearch;
-
-    if(!searchResult){
-
-        throw new Error(
-            result.errors?.[0]?.message ||
-            `Upwork returned no data at offset ${offset}`
-        );
-    }
-
-    return{
-        totalCount:
-            searchResult.totalCount ??
-            0,
-
-        edges:
-            Array.isArray(
-                searchResult.edges
-            )
-                ? searchResult.edges
-                : [],
-
-        warningCount:
-            result.errors
-                ?.length ||
-            0
-    };
-}
-
-/* =========================================
-   NORMALIZE JOB
-========================================= */
-
-function normalizeJob(
-    node:any
-){
-
-    /*
-        Correct activity location:
-
-        node
-          -> job
-          -> activityStat
-          -> jobActivity
-    */
-
-    const activity =
-        node.job
-            ?.activityStat
-            ?.jobActivity ||
-        null;
-
-    /*
-        Fixed-price budget.
-
-        We intentionally DON'T query
-        MarketplaceJobPostingSearchResult.amount
-        because Upwork sometimes returns null
-        even though its schema declares Money!.
-    */
-
-    const fixedPrice =
-        node.job
-            ?.contractTerms
-            ?.fixedPriceContractTerms ||
-        null;
-
-    return{
-
-        id:
-            node.id,
-
-        title:
-            node.title ||
-            "",
-
-        description:
-            node.description ||
-            "",
-
-        ciphertext:
-            node.ciphertext ||
-            "",
-
-        applied:
-            Boolean(
-                node.applied
-            ),
-
-        createdDateTime:
-            node.createdDateTime ||
-            null,
-
-        publishedDateTime:
-            node.publishedDateTime ||
-            null,
-
-        totalApplicants:
-            node.totalApplicants ??
-            0,
-
-        /*
-            Existing frontend expects:
-            job.amount.displayValue
-        */
-
-        amount:
-            fixedPrice
-                ?.amount ||
-            null,
-
-        fixedPriceMaxAmount:
-            fixedPrice
-                ?.maxAmount ||
-            null,
-
-        hourlyBudgetMin:
-            node.hourlyBudgetMin ||
-            null,
-
-        hourlyBudgetMax:
-            node.hourlyBudgetMax ||
-            null,
-
-        contractType:
-            node.job
-                ?.contractTerms
-                ?.contractType ||
-            null,
-
-        /* =================================
-           CLIENT
-        ================================= */
-
-        client:{
-
-            totalFeedback:
-                node.client
-                    ?.totalFeedback ??
-                0,
-
-            totalReviews:
-                node.client
-                    ?.totalReviews ??
-                0,
-
-            totalHires:
-                node.client
-                    ?.totalHires ??
-                0,
-
-            totalPostedJobs:
-                node.client
-                    ?.totalPostedJobs ??
-                0,
-
-            verificationStatus:
-                node.client
-                    ?.verificationStatus ||
-                "",
-
-            companyRid:
-                node.client
-                    ?.companyRid ||
-                "",
-
-            totalSpent:
-                node.client
-                    ?.totalSpent ||
-                null,
-
-            location:{
-
-                country:
-                    node.client
-                        ?.location
-                        ?.country ||
-                    "",
-
-                city:
-                    node.client
-                        ?.location
-                        ?.city ||
-                    "",
-
-                timezone:
-                    node.client
-                        ?.location
-                        ?.timezone ||
-                    ""
-            }
-        },
-
-        /* =================================
-           ACTIVITY
-        ================================= */
-
-        activity:{
-
-            lastClientActivity:
-                activity
-                    ?.lastClientActivity ||
-                null,
-
-            invitesSent:
-                activity
-                    ?.invitesSent ??
-                0,
-
-            totalInvitedToInterview:
-                activity
-                    ?.totalInvitedToInterview ??
-                0,
-
-            totalHired:
-                activity
-                    ?.totalHired ??
-                0,
-
-            totalUnansweredInvites:
-                activity
-                    ?.totalUnansweredInvites ??
-                0,
-
-            totalOffered:
-                activity
-                    ?.totalOffered ??
-                0,
-
-            totalRecommended:
-                activity
-                    ?.totalRecommended ??
-                0
-        }
-    };
-}
-
-/* =========================================
-   ADD EDGES
-========================================= */
-
-function addEdges(
-    edges:Array<any>,
-    jobs:any[],
-    jobIds:Set<string>
-){
-
-    for(
-        const edge of edges
-    ){
-
-        const node =
-            edge?.node;
-
-        if(
-            !node?.id
-        ){
-            continue;
-        }
-
-        /*
-            Avoid duplicate jobs.
-        */
-
-        if(
-            jobIds.has(
-                node.id
-            )
-        ){
-            continue;
-        }
-
-        jobIds.add(
-            node.id
-        );
-
-        jobs.push(
-            normalizeJob(
-                node
-            )
-        );
-    }
-}
-
-/* =========================================
-   GET
-========================================= */
-
-export async function GET(
-    request:NextRequest
-){
-
-    try{
-
-        const {
-            searchParams
-        } =
-            new URL(
-                request.url
-            );
-
-        const keyword =
-            searchParams
-                .get("q")
-                ?.trim() ||
-            "";
-
-        if(!keyword){
-
-            return NextResponse.json(
-                {
-                    success:false,
-                    error:
-                        "Search keyword is required"
-                },
-                {
-                    status:400
-                }
-            );
-        }
-
-        /* =====================================
-           FIRST PAGE
-        ===================================== */
-
-        const firstPage =
-            await fetchPage(
-                keyword,
-                0
-            );
-
-        const totalAvailable =
-            firstPage.totalCount;
-
-        /*
-            If Upwork says 625,
-            targetCount becomes 625.
-
-            MAX_JOBS is only a safety guard.
-        */
-
-        const targetCount =
-            Math.min(
-                totalAvailable,
-                MAX_JOBS
-            );
-
-        const allJobs:any[] =
-            [];
-
-        const jobIds =
-            new Set<string>();
-
-        let graphqlWarnings =
-            firstPage.warningCount;
-
-        addEdges(
-            firstPage.edges,
-            allJobs,
-            jobIds
-        );
-
-        /* =====================================
-           BUILD REMAINING OFFSETS
-
-           Example for 625:
-
-           50
-           100
-           150
-           ...
-           600
-        ===================================== */
-
-        const offsets:number[] =
-            [];
-
-        for(
-            let offset=PAGE_SIZE;
-            offset<targetCount;
-            offset+=PAGE_SIZE
-        ){
-
-            offsets.push(
-                offset
-            );
-        }
-
-        /* =====================================
-           LOAD REMAINING PAGES
-
-           Fetch 4 pages per batch so it is
-           faster than doing all 13 requests
-           strictly one-by-one.
-        ===================================== */
-
-        for(
-            let i=0;
-            i<offsets.length;
-            i+=CONCURRENT_REQUESTS
-        ){
-
-            const batch =
-                offsets.slice(
-                    i,
-                    i +
-                    CONCURRENT_REQUESTS
-                );
-
-            console.log(
-                "Loading Upwork offsets:",
-                batch
-            );
-
-            const pages =
-                await Promise.all(
-                    batch.map(
-                        offset =>
-                            fetchPage(
-                                keyword,
-                                offset
-                            )
-                    )
-                );
-
-            pages.forEach(
-                page => {
-
-                    graphqlWarnings +=
-                        page.warningCount;
-
-                    addEdges(
-                        page.edges,
-                        allJobs,
-                        jobIds
-                    );
-                }
-            );
-        }
-
-        /* =====================================
-           LIMIT TO TARGET
-        ===================================== */
-
-        const finalJobs =
-            allJobs.slice(
-                0,
-                targetCount
-            );
-
-        console.log(
-            "Upwork search completed:",
-            {
-                keyword,
-
-                totalAvailable,
-
-                loaded:
-                    finalJobs.length,
-
-                requests:
-                    1 +
-                    offsets.length,
-
-                graphqlWarnings
-            }
-        );
-
-        return NextResponse.json({
-
-            success:true,
-
-            total:
-                totalAvailable,
-
-            loaded:
-                finalJobs.length,
-
-            jobs:
-                finalJobs,
-
-            graphqlWarnings,
-
-            truncated:
-                totalAvailable >
-                MAX_JOBS
-        });
-
-    }catch(error){
-
-        console.error(
-            "Upwork Jobs API Error:",
-            error
-        );
-
-        return NextResponse.json(
-            {
-                success:false,
-
-                error:
-                    error instanceof Error
-                        ? error.message
-                        : "Unable to search Upwork jobs"
-            },
-            {
-                status:500
-            }
-        );
-    }
+      first === PAGE_SIZE
+        ? await fetch50Jobs(searchExpression, after)
+        : await fetchBatch(searchExpression, first, after);
+
+    const seen = new Set<string>();
+
+    const edges = (result.edges || []).filter((edge: any) => {
+      const id = edge?.node?.id;
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
+    const jobs = edges.map(formatJob);
+
+    return NextResponse.json({
+      success: true,
+      jobs,
+      total: Number(result.totalCount || 0),
+      pageSize: first,
+      pageInfo: {
+        endCursor: result.pageInfo?.endCursor || null,
+        hasNextPage: result.pageInfo?.hasNextPage === true
+      }
+    });
+  } catch (error) {
+    console.error("UPWORK JOB SEARCH ERROR:", error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        jobs: [],
+        total: 0,
+        error: getErrorMessage(error) || "Unable to search Upwork jobs"
+      },
+      { status: 500 }
+    );
+  }
 }

@@ -24,7 +24,7 @@ export function middleware(req: NextRequest) {
 
     const adminPages = [
         "/jobs",
-        "/ai-opportunity-analyzer"
+        "/upwork-jobs"
     ];
 
 
@@ -94,7 +94,7 @@ export const config = {
         "/profile/:path*",
         "/reset-password/:path*",
         "/jobs/:path*",
-        "/ai-opportunity-analyzer/:path*",
+        "/upwork-jobs/:path*",
         "/login",
         "/signup",
         "/forgot-password"
