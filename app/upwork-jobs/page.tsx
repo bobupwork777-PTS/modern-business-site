@@ -53,6 +53,8 @@ type AIReport = { relevant: boolean; proposal?: string; reason?: string; error?:
 type PageInfo = { endCursor: string | null; hasNextPage: boolean };
 type PaymentFilter = "all" | "verified" | "unverified";
 type AddOptionType = "country" | "skill";
+type SortColumn = "status" | "country" | "feedback" | "applicants" | "verified";
+type SortDirection = "desc" | "asc";
 
 const PAGE_SIZE = 50;
 const applicantOptions = [
@@ -80,7 +82,11 @@ export default function UpworkJobsPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [hasSearched, setHasSearched] = useState(false);
+    const [fixedPriceFirst, setFixedPriceFirst] = useState(false);
+    const [hourlyPriceFirst, setHourlyPriceFirst] = useState(false);
     const [previousClientFirst, setPreviousClientFirst] = useState(false);
+    const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
+    const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
     const [aiReport, setAiReport] = useState<AIReport | null>(null);
     const [showModal, setShowModal] = useState(false);
@@ -179,60 +185,419 @@ export default function UpworkJobsPage() {
         }
     }
 
-    async function searchJobs(page = 1, cursor = "0", keyword?: string, previousClientFirstOverride?: boolean) {
-        const searchKeyword = (keyword ?? search).trim() || "Wix";
-        const prioritizePreviousClient = previousClientFirstOverride ?? previousClientFirst;
+    async function searchJobs(
+        page = 1,
+        cursor = "0",
+        keyword?: string,
+        previousClientFirstOverride?: boolean
+    ) {
+
+        const searchKeyword =
+            (
+                keyword ??
+                search
+            ).trim() ||
+            "Wix";
+
+        const prioritizePreviousClient =
+            previousClientFirstOverride ??
+            previousClientFirst;
+
         try {
+
             setHasSearched(true);
             setLoading(true);
             setError("");
 
-            const params = new URLSearchParams({ q: searchKeyword, first: String(PAGE_SIZE), after: cursor });
-            if (selectedCountries.length && !allCountriesSelected) params.set("countries", selectedCountries.join(","));
-            if (budgetMin.trim()) params.set("budgetMin", budgetMin.trim());
-            if (budgetMax.trim()) params.set("budgetMax", budgetMax.trim());
-            if (paymentVerified !== "all") params.set("paymentVerified", paymentVerified);
-            if (applicantRange !== "all") params.set("applicants", applicantRange);
-            if (postedDays !== "all") params.set("postedDays", postedDays);
-            if (prioritizePreviousClient) params.set("previousClient", "true");
+            const params =
+                new URLSearchParams({
+                    q:
+                        searchKeyword,
 
-            const response = await fetch(`/api/upwork/jobs?${params.toString()}`, { cache: "no-store" });
-            const data = await response.json();
+                    first:
+                        String(
+                            PAGE_SIZE
+                        ),
 
-            if (!response.ok || !data.success) {
-                let message = "Unable to search Upwork jobs";
-                if (typeof data.error === "string") message = data.error;
-                else if (Array.isArray(data.error)) message = data.error?.[0]?.message || message;
-                else if (data.error?.message) message = data.error.message;
-                throw new Error(message);
+                    after:
+                        cursor
+                });
+
+            if (
+                selectedCountries.length &&
+                !allCountriesSelected
+            ) {
+
+                params.set(
+                    "countries",
+                    selectedCountries.join(",")
+                );
             }
 
-            const nextInfo: PageInfo = {
-                endCursor: data.pageInfo?.endCursor || null,
-                hasNextPage: data.pageInfo?.hasNextPage === true
+            if (budgetMin.trim()) {
+
+                params.set(
+                    "budgetMin",
+                    budgetMin.trim()
+                );
+            }
+
+            if (budgetMax.trim()) {
+
+                params.set(
+                    "budgetMax",
+                    budgetMax.trim()
+                );
+            }
+
+            if (
+                paymentVerified !==
+                "all"
+            ) {
+
+                params.set(
+                    "paymentVerified",
+                    paymentVerified
+                );
+            }
+
+            if (
+                applicantRange !==
+                "all"
+            ) {
+
+                params.set(
+                    "applicants",
+                    applicantRange
+                );
+            }
+
+            if (
+                postedDays !==
+                "all"
+            ) {
+
+                params.set(
+                    "postedDays",
+                    postedDays
+                );
+            }
+
+            if (
+                prioritizePreviousClient
+            ) {
+
+                params.set(
+                    "previousClient",
+                    "true"
+                );
+            }
+
+            const response =
+                await fetch(
+                    `/api/upwork/jobs?${params.toString()}`,
+                    {
+                        method:
+                            "GET",
+
+                        cache:
+                            "no-store",
+
+                        headers: {
+                            Accept:
+                                "application/json"
+                        }
+                    }
+                );
+
+            /*
+             * IMPORTANT:
+             *
+             * Read text first.
+             *
+             * Never immediately call response.json()
+             * because an HTML 404/500/redirect page
+             * would cause:
+             *
+             * Unexpected token '<'
+             */
+            const contentType =
+                response.headers.get(
+                    "content-type"
+                ) || "";
+
+            const raw =
+                await response.text();
+
+            let data:
+                any = {};
+
+            if (
+                raw.trim()
+                    .startsWith("<")
+            ) {
+
+                console.error(
+                    "UPWORK JOB API RETURNED HTML:",
+                    {
+                        status:
+                            response.status,
+
+                        contentType,
+
+                        preview:
+                            raw.slice(
+                                0,
+                                500
+                            )
+                    }
+                );
+
+                throw new Error(
+                    `Upwork API returned HTML instead of JSON (${response.status}). Check the server console.`
+                );
+            }
+
+            if (raw) {
+
+                try {
+
+                    data =
+                        JSON.parse(
+                            raw
+                        );
+
+                } catch {
+
+                    console.error(
+                        "INVALID JOB API RESPONSE:",
+                        raw.slice(
+                            0,
+                            500
+                        )
+                    );
+
+                    throw new Error(
+                        `Invalid API response (${response.status})`
+                    );
+                }
+            }
+
+            /*
+             * Upwork authorization genuinely
+             * needs to be renewed.
+             */
+            if (
+                data?.reauthRequired ===
+                true ||
+
+                data?.error ===
+                "UPWORK_REAUTH_REQUIRED"
+            ) {
+
+                console.warn(
+                    "UPWORK AUTHORIZATION REQUIRED:",
+                    data
+                );
+
+                if (page === 1) {
+
+                    setJobs([]);
+                    setTotal(0);
+                    setCurrentPage(1);
+
+                    setPageInfo({
+                        endCursor:
+                            null,
+
+                        hasNextPage:
+                            false
+                    });
+
+                    setPageCursors({
+                        1:
+                            "0"
+                    });
+                }
+
+                setError(
+                    data?.reauthReason ||
+                    data?.message ||
+                    "Upwork authorization is required."
+                );
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * Don't fetch /api/upwork/connect.
+                 * It is an OAuth browser redirect.
+                 *
+                 * For now we don't automatically
+                 * redirect while simply searching.
+                 */
+                return;
+            }
+
+            if (
+                !response.ok ||
+                !data?.success
+            ) {
+
+                let message =
+                    "Unable to search Upwork jobs";
+
+                if (
+                    typeof data?.message ===
+                    "string" &&
+                    data.message
+                ) {
+
+                    message =
+                        data.message;
+
+                } else if (
+                    typeof data?.error ===
+                    "string" &&
+                    data.error
+                ) {
+
+                    message =
+                        data.error;
+
+                } else if (
+                    Array.isArray(
+                        data?.error
+                    )
+                ) {
+
+                    message =
+                        data.error?.[0]
+                            ?.message ||
+                        message;
+
+                } else if (
+                    data?.error?.message
+                ) {
+
+                    message =
+                        data.error.message;
+                }
+
+                throw new Error(
+                    message
+                );
+            }
+
+            const nextInfo:
+                PageInfo = {
+
+                endCursor:
+                    data?.pageInfo
+                        ?.endCursor ||
+                    null,
+
+                hasNextPage:
+                    data?.pageInfo
+                        ?.hasNextPage ===
+                    true
             };
 
-            setSearch(searchKeyword);
-            setJobs(data.jobs || []);
-            setTotal(data.total ?? data.totalCount ?? 0);
-            setCurrentPage(page);
-            setPageInfo(nextInfo);
-            setPageCursors(previous => {
-                const updated: Record<number, string> = page === 1 ? { 1: "0" } : { ...previous };
-                if (nextInfo.endCursor) updated[page + 1] = nextInfo.endCursor;
-                return updated;
-            });
+            setSearch(
+                searchKeyword
+            );
+
+            setJobs(
+                Array.isArray(
+                    data?.jobs
+                )
+                    ? data.jobs
+                    : []
+            );
+
+            setTotal(
+                Number(
+                    data?.total ??
+                    data?.totalCount ??
+                    0
+                )
+            );
+
+            setCurrentPage(
+                page
+            );
+
+            setPageInfo(
+                nextInfo
+            );
+
+            setPageCursors(
+                previous => {
+
+                    const updated:
+                        Record<number, string> =
+
+                        page === 1
+
+                            ? {
+                                1:
+                                    "0"
+                            }
+
+                            : {
+                                ...previous
+                            };
+
+                    if (
+                        nextInfo.endCursor
+                    ) {
+
+                        updated[
+                            page + 1
+                        ] =
+                            nextInfo.endCursor;
+                    }
+
+                    return updated;
+                }
+            );
+
         } catch (err) {
-            console.error("Upwork Search Error:", err);
-            if (page === 1) {
+
+            console.error(
+                "Upwork Search Error:",
+                err
+            );
+
+            if (
+                page === 1
+            ) {
+
                 setJobs([]);
                 setTotal(0);
                 setCurrentPage(1);
-                setPageInfo({ endCursor: null, hasNextPage: false });
-                setPageCursors({ 1: "0" });
+
+                setPageInfo({
+                    endCursor:
+                        null,
+
+                    hasNextPage:
+                        false
+                });
+
+                setPageCursors({
+                    1:
+                        "0"
+                });
             }
-            setError(err instanceof Error ? err.message : "Something went wrong");
+
+            setError(
+                err instanceof Error
+                    ? err.message
+                    : "Something went wrong"
+            );
+
         } finally {
+
             setLoading(false);
         }
     }
@@ -274,7 +639,11 @@ export default function UpworkJobsPage() {
         setPaymentVerified("all");
         setApplicantRange("all");
         setPostedDays("all");
+        setFixedPriceFirst(false);
+        setHourlyPriceFirst(false);
         setPreviousClientFirst(false);
+        setSortColumn(null);
+        setSortDirection("desc");
     }
 
     const activeFilterCount =
@@ -284,13 +653,48 @@ export default function UpworkJobsPage() {
         (paymentVerified !== "all" ? 1 : 0) +
         (applicantRange !== "all" ? 1 : 0) +
         (postedDays !== "all" ? 1 : 0) +
+        (fixedPriceFirst ? 1 : 0) +
+        (hourlyPriceFirst ? 1 : 0) +
         (previousClientFirst ? 1 : 0);
+
+    function handleFixedPriceFirstChange(checked: boolean) {
+        setFixedPriceFirst(checked);
+        setSortColumn(null);
+        setSortDirection("desc");
+
+        if (checked) {
+            setHourlyPriceFirst(false);
+        }
+    }
+
+    function handleHourlyPriceFirstChange(checked: boolean) {
+        setHourlyPriceFirst(checked);
+        setSortColumn(null);
+        setSortDirection("desc");
+
+        if (checked) {
+            setFixedPriceFirst(false);
+        }
+    }
+
+    function handleColumnSort(column: SortColumn) {
+        if (sortColumn === column) {
+            setSortDirection(current => current === "desc" ? "asc" : "desc");
+            return;
+        }
+
+        setSortColumn(column);
+        setSortDirection("desc");
+    }
+
+    function getSortIndicator(column: SortColumn) {
+        if (sortColumn !== column) return "↕";
+        return sortDirection === "desc" ? "↓" : "↑";
+    }
 
     async function handlePreviousClientFirstChange(checked: boolean) {
         setPreviousClientFirst(checked);
 
-        // If jobs are already loaded, immediately re-run page 1 so
-        // previous-client jobs move to the top without another button click.
         if (hasSearched) {
             setPageCursors({ 1: "0" });
             await searchJobs(1, "0", undefined, checked);
@@ -389,11 +793,38 @@ export default function UpworkJobsPage() {
     }
 
     function getBudget(job: Job) {
-        const min = job.hourlyBudgetMin?.displayValue;
-        const max = job.hourlyBudgetMax?.displayValue;
-        if (min) return max ? `${min} - ${max}/hr` : `${min}/hr`;
-        if (job.amount?.displayValue) return `Fixed ${job.amount.displayValue}`;
+        const hourlyMin = job.hourlyBudgetMin?.displayValue;
+        const hourlyMax = job.hourlyBudgetMax?.displayValue;
+        const fixedAmount = job.amount?.displayValue;
+
+        if (hourlyMin || hourlyMax) {
+            if (hourlyMin && hourlyMax) {
+                return `Hourly Price: ${hourlyMin} - ${hourlyMax}/hr`;
+            }
+
+            return `Hourly Price: ${hourlyMin || hourlyMax}/hr`;
+        }
+
+        if (fixedAmount) {
+            return `Fixed Price: ${fixedAmount}`;
+        }
+
         return "Not specified";
+    }
+
+    function isFixedPriceJob(job: Job) {
+        return Boolean(
+            job.amount?.displayValue &&
+            !job.hourlyBudgetMin?.displayValue &&
+            !job.hourlyBudgetMax?.displayValue
+        );
+    }
+
+    function isHourlyPriceJob(job: Job) {
+        return Boolean(
+            job.hourlyBudgetMin?.displayValue ||
+            job.hourlyBudgetMax?.displayValue
+        );
     }
 
     function isVerified(status?: string) {
@@ -417,6 +848,18 @@ export default function UpworkJobsPage() {
         if (isFeaturedJob(job)) statuses.push("Featured");
         if (isPreviousClientJob(job)) statuses.push("Previous Client");
         return statuses.length ? statuses.join(", ") : "N/A";
+    }
+
+    function getStatusSortValue(job: Job) {
+        let score = 0;
+        if (job.applied) score += 100;
+        if (isPreviousClientJob(job)) score += 10;
+        if (isFeaturedJob(job)) score += 1;
+        return score;
+    }
+
+    function compareText(a: string, b: string) {
+        return a.localeCompare(b, undefined, { sensitivity: "base" });
     }
 
     function getProposalRange(totalApplicants?: number) {
@@ -527,6 +970,65 @@ export default function UpworkJobsPage() {
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const from = total ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
     const to = total && jobs.length ? from + jobs.length - 1 : 0;
+
+    const displayedJobs = jobs
+        .map((job, index) => ({ job, index }))
+        .sort((a, b) => {
+            if (sortColumn) {
+                let comparison = 0;
+
+                switch (sortColumn) {
+                    case "status":
+                        comparison = getStatusSortValue(a.job) - getStatusSortValue(b.job);
+                        break;
+
+                    case "country":
+                        comparison = compareText(
+                            a.job.client?.location?.country || "",
+                            b.job.client?.location?.country || ""
+                        );
+                        break;
+
+                    case "feedback":
+                        comparison = (a.job.client?.totalFeedback ?? 0) - (b.job.client?.totalFeedback ?? 0);
+                        break;
+
+                    case "applicants":
+                        comparison = (a.job.totalApplicants ?? 0) - (b.job.totalApplicants ?? 0);
+                        break;
+
+                    case "verified":
+                        comparison = Number(isVerified(a.job.client?.verificationStatus)) -
+                            Number(isVerified(b.job.client?.verificationStatus));
+                        break;
+                }
+
+                if (comparison !== 0) {
+                    return sortDirection === "desc" ? -comparison : comparison;
+                }
+            }
+
+            if (fixedPriceFirst) {
+                const aFixed = isFixedPriceJob(a.job);
+                const bFixed = isFixedPriceJob(b.job);
+
+                if (aFixed !== bFixed) {
+                    return aFixed ? -1 : 1;
+                }
+            }
+
+            if (hourlyPriceFirst) {
+                const aHourly = isHourlyPriceJob(a.job);
+                const bHourly = isHourlyPriceJob(b.job);
+
+                if (aHourly !== bHourly) {
+                    return aHourly ? -1 : 1;
+                }
+            }
+
+            return a.index - b.index;
+        })
+        .map(item => item.job);
 
     return (
         <div className="min-h-screen flex flex-col bg-[#0D163F]">
@@ -777,6 +1279,28 @@ export default function UpworkJobsPage() {
                                 <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-800 cursor-pointer">
                                     <input
                                         type="checkbox"
+                                        checked={fixedPriceFirst}
+                                        onChange={e => handleFixedPriceFirstChange(e.target.checked)}
+                                        disabled={loading}
+                                        className="w-3.5 h-3.5 disabled:cursor-not-allowed"
+                                    />
+                                    Fixed Price
+                                </label>
+
+                                <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-800 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={hourlyPriceFirst}
+                                        onChange={e => handleHourlyPriceFirstChange(e.target.checked)}
+                                        disabled={loading}
+                                        className="w-3.5 h-3.5 disabled:cursor-not-allowed"
+                                    />
+                                    Hourly Price
+                                </label>
+
+                                <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-800 cursor-pointer">
+                                    <input
+                                        type="checkbox"
                                         checked={previousClientFirst}
                                         onChange={e => void handlePreviousClientFirstChange(e.target.checked)}
                                         disabled={loading}
@@ -784,6 +1308,7 @@ export default function UpworkJobsPage() {
                                     />
                                     Previous Client First
                                 </label>
+
                                 <span className="text-blue-600 text-xs font-bold">Total: {total}</span>
                             </div>
                         </div>
@@ -809,16 +1334,56 @@ export default function UpworkJobsPage() {
 
                                 <thead className="bg-[#F8FAFC]">
                                     <tr>
-                                        <th className={thClass}>Status</th>
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("status")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Status <span className="text-[10px]">{getSortIndicator("status")}</span>
+                                            </button>
+                                        </th>
                                         <th className={thClass}>Elapsed</th>
                                         <th className={thClass}>Job Title</th>
                                         <th className={thClass}>Description</th>
                                         <th className={thClass}>URL</th>
-                                        <th className={thClass}>Country</th>
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("country")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Country <span className="text-[10px]">{getSortIndicator("country")}</span>
+                                            </button>
+                                        </th>
                                         <th className={thClass}>Client</th>
-                                        <th className={thClass}>Fdbk</th>
-                                        <th className={thClass}>Appl</th>
-                                        <th className={thClass}>Verified</th>
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("feedback")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Fdbk <span className="text-[10px]">{getSortIndicator("feedback")}</span>
+                                            </button>
+                                        </th>
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("applicants")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Appl <span className="text-[10px]">{getSortIndicator("applicants")}</span>
+                                            </button>
+                                        </th>
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("verified")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Verified <span className="text-[10px]">{getSortIndicator("verified")}</span>
+                                            </button>
+                                        </th>
                                         <th className={thClass}>Budget</th>
                                         <th className={thClass}>Published</th>
                                         <th className={thClass}>Activity</th>
@@ -855,7 +1420,7 @@ export default function UpworkJobsPage() {
                                             </td>
                                         </tr>
                                     ) : (
-                                        jobs.map(job => {
+                                        displayedJobs.map(job => {
                                             const verified = isVerified(job.client?.verificationStatus);
                                             const jobUrl = getJobUrl(job);
                                             return (
@@ -962,13 +1527,12 @@ export default function UpworkJobsPage() {
                                                                     queuedJobIds.includes(job.id) ||
                                                                     queueLoadingIds.includes(job.id)
                                                                 }
-                                                                className={`w-full rounded-md px-2 py-1.5 text-[11px] font-semibold transition ${
-                                                                    queuedJobIds.includes(job.id)
-                                                                        ? "cursor-default border border-green-200 bg-green-50 text-green-700"
-                                                                        : queueLoadingIds.includes(job.id)
-                                                                            ? "cursor-wait border border-blue-200 bg-blue-50 text-blue-600"
-                                                                            : "border border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
-                                                                }`}
+                                                                className={`w-full rounded-md px-2 py-1.5 text-[11px] font-semibold transition ${queuedJobIds.includes(job.id)
+                                                                    ? "cursor-default border border-green-200 bg-green-50 text-green-700"
+                                                                    : queueLoadingIds.includes(job.id)
+                                                                        ? "cursor-wait border border-blue-200 bg-blue-50 text-blue-600"
+                                                                        : "border border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
+                                                                    }`}
                                                             >
                                                                 {queuedJobIds.includes(job.id)
                                                                     ? "✓ Queued"
