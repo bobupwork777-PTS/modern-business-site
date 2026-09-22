@@ -51,7 +51,7 @@ export default function Navbar() {
                                     <Link href="/trend-analysis" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
                                         Trend Analysis
                                     </Link>
-                                    <Link href="/queue-list" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
+                                    <Link href="/queue-jobs" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
                                         Queue List
                                     </Link>
                                 </div>
@@ -73,7 +73,7 @@ export default function Navbar() {
                                     <Link href="/trend-analysis" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
                                         Trend Analysis
                                     </Link>
-                                    <Link href="/queue-list" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
+                                    <Link href="/queue-jobs" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
                                         Queue List
                                     </Link>
                                 </div>
