@@ -48,9 +48,6 @@ export default function Navbar() {
                                     <Link href="/upwork-jobs" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
                                         Proposal Gen
                                     </Link>
-                                    <Link href="/trend-analysis" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
-                                        Trend Analysis
-                                    </Link>
                                     <Link href="/queue-jobs" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
                                         Queue List
                                     </Link>
@@ -69,9 +66,6 @@ export default function Navbar() {
                                 <div className="w-48 rounded-xl border border-white/10 bg-[#111B48] shadow-2xl py-2">
                                     <Link href="/upwork-jobs" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
                                         Proposal Gen
-                                    </Link>
-                                    <Link href="/trend-analysis" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
-                                        Trend Analysis
                                     </Link>
                                     <Link href="/queue-jobs" className="block px-4 py-2.5 text-sm hover:bg-blue-600 hover:text-white">
                                         Queue List
