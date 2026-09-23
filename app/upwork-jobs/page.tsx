@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import * as XLSX from "xlsx";
 
 type Job = {
     id: string;
@@ -110,6 +111,30 @@ export default function UpworkJobsPage() {
     const [optionsLoading, setOptionsLoading] = useState(true);
     const [optionSaving, setOptionSaving] = useState(false);
     const [queueLoadingIds, setQueueLoadingIds] = useState<string[]>([]);
+    const [showExportModal, setShowExportModal] = useState(false);
+
+    const exportColumns = [
+        { key: "status", label: "Status" },
+        { key: "elapsed", label: "Elapsed" },
+        { key: "title", label: "Job Title" },
+        { key: "description", label: "Description" },
+        { key: "url", label: "URL" },
+        { key: "country", label: "Country" },
+        { key: "client", label: "Client" },
+        { key: "feedback", label: "Feedback" },
+        { key: "applicants", label: "Applicants" },
+        { key: "verified", label: "Verified" },
+        { key: "budget", label: "Budget" },
+        { key: "published", label: "Published" },
+        { key: "activity", label: "Activity" }
+    ];
+
+    const [selectedExportColumns,setSelectedExportColumns]=useState([
+        "title",
+        "description",
+        "url"
+    ]);
+
 
     const allCountriesSelected = countryOptions.length > 0 && selectedCountries.length === countryOptions.length;
 
@@ -967,6 +992,96 @@ export default function UpworkJobsPage() {
         }
     }
 
+
+    function exportToExcel() {
+
+        const data = displayedJobs.map(job => {
+
+            const row:any = {};
+
+            selectedExportColumns.forEach(column => {
+
+                switch(column) {
+
+                    case "status":
+                        row.Status = getStatusText(job);
+                        break;
+
+                    case "elapsed":
+                        row.Elapsed = getElapsedTime(job.publishedDateTime);
+                        break;
+
+                    case "title":
+                        row["Job Title"] = job.title || "";
+                        break;
+
+                    case "description":
+                        row.Description = job.description || "";
+                        break;
+
+                    case "url":
+                        row.URL = getJobUrl(job);
+                        break;
+
+                    case "country":
+                        row.Country = job.client?.location?.country || "";
+                        break;
+
+                    case "client":
+                        row.Client =
+                            `${job.client?.totalPostedJobs ?? 0} jobs posted | ${job.client?.totalSpent?.displayValue || "$0"} spent`;
+                        break;
+
+                    case "feedback":
+                        row.Feedback = job.client?.totalFeedback ?? 0;
+                        break;
+
+                    case "applicants":
+                        row.Applicants = job.totalApplicants ?? 0;
+                        break;
+
+                    case "verified":
+                        row.Verified = isVerified(job.client?.verificationStatus)
+                            ? "Verified"
+                            : "Unverified";
+                        break;
+
+                    case "budget":
+                        row.Budget = getBudget(job);
+                        break;
+
+                    case "published":
+                        row.Published = formatDate(job.publishedDateTime);
+                        break;
+
+                    case "activity":
+                        row.Activity =
+                            `Proposals: ${getProposalRange(job.totalApplicants)}, Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}, Invites: ${job.activity?.invitesSent ?? 0}`;
+                        break;
+                }
+
+            });
+
+            return row;
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+
+        XLSX.utils.book_append_sheet(
+            workbook,
+            worksheet,
+            "Jobs"
+        );
+
+        XLSX.writeFile(
+            workbook,
+            "upwork-jobs-export.xlsx"
+        );
+
+        setShowExportModal(false);
+    }
+
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const from = total ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
     const to = total && jobs.length ? from + jobs.length - 1 : 0;
@@ -1276,6 +1391,13 @@ export default function UpworkJobsPage() {
                             </div>
 
                             <div className="flex flex-wrap items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowExportModal(true)}
+                                    className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700"
+                                >
+                                    Export Excel
+                                </button>
                                 <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-800 cursor-pointer">
                                     <input
                                         type="checkbox"
@@ -1586,6 +1708,71 @@ export default function UpworkJobsPage() {
                     </section>
                 </div>
             </main>
+
+
+            {showExportModal && (
+                <div
+                    className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4"
+                    onClick={() => setShowExportModal(false)}
+                >
+                    <div
+                        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex justify-between mb-4">
+                            <h2 className="text-lg font-bold text-gray-900">
+                                Export Columns
+                            </h2>
+
+                            <button
+                                type="button"
+                                onClick={() => setShowExportModal(false)}
+                                className="text-gray-500"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="space-y-2 max-h-[350px] overflow-y-auto">
+                            {exportColumns.map(column => (
+                                <label
+                                    key={column.key}
+                                    className="flex items-center gap-2 text-sm text-gray-700"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedExportColumns.includes(column.key)}
+                                        onChange={(e) => {
+                                            if (e.target.checked) {
+                                                setSelectedExportColumns([
+                                                    ...selectedExportColumns,
+                                                    column.key
+                                                ]);
+                                            } else {
+                                                setSelectedExportColumns(
+                                                    selectedExportColumns.filter(
+                                                        item => item !== column.key
+                                                    )
+                                                );
+                                            }
+                                        }}
+                                    />
+                                    {column.label}
+                                </label>
+                            ))}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={exportToExcel}
+                            disabled={!selectedExportColumns.length}
+                            className="mt-5 w-full rounded-lg bg-blue-600 py-2 font-semibold text-white disabled:bg-gray-300"
+                        >
+                            Export Selected Columns
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {showAddOptionModal && (
                 <div
