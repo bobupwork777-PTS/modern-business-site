@@ -63,6 +63,7 @@ query SearchJobs(
           totalHires
           totalPostedJobs
           verificationStatus
+          memberSinceDateTime
 
           totalSpent{
             displayValue
@@ -153,20 +154,14 @@ function isTransformTimeout(error: unknown) {
     .includes("transform timeout");
 }
 
-async function callUpworkGraphQL(
-  query: string,
-  variables: Record<string, any>
-) {
+async function callUpworkGraphQL(query: string, variables: Record<string, any>) {
   const body: any =
     await upworkGraphQL(
       query,
       variables
     );
 
-  if (
-    Array.isArray(body?.errors) &&
-    body.errors.length
-  ) {
+  if (Array.isArray(body?.errors) && body.errors.length) {
     const message =
       body.errors
         .map((x: any) => x?.message)
@@ -413,15 +408,9 @@ async function fetchBatch(
     }
   );
 
-  const body =
-    await callUpworkGraphQL(
-      QUERY,
-      variables
-    );
+  const body = await callUpworkGraphQL(QUERY, variables);
 
-  const result =
-    body?.data
-      ?.marketplaceJobPostingsSearch;
+  const result = body?.data?.marketplaceJobPostingsSearch;
 
   if (!result) {
     throw new Error(
@@ -447,9 +436,7 @@ async function fetch50Jobs(
     if (!isTransformTimeout(error))
       throw error;
 
-    console.warn(
-      "50-job request timed out. Retrying 25 + 25."
-    );
+    console.warn("50-job request timed out. Retrying 25 + 25.");
 
     const firstBatch =
       await fetchBatch(
@@ -511,24 +498,17 @@ async function fetch50Jobs(
    FETCH ALL RESULTS
 ========================= */
 
-async function fetchAllJobs(
-  searchExpression: string
-) {
+async function fetchAllJobs(searchExpression: string) {
   const cacheKey =
     searchExpression
       .trim()
       .toLowerCase();
 
-  const cached =
-    allJobsCache.get(cacheKey);
+  const cached = allJobsCache.get(cacheKey);
 
-  if (
-    cached &&
-    cached.expiresAt > Date.now()
-  ) {
-    console.log(
-      `UPWORK CACHE HIT: ${cached.edges.length}`
-    );
+  if (cached && cached.expiresAt > Date.now()) {
+
+    console.log(`UPWORK CACHE HIT: ${cached.edges.length}`);
 
     return {
       edges: cached.edges,
@@ -538,11 +518,9 @@ async function fetchAllJobs(
   }
 
   const allEdges: any[] = [];
-  const seenJobIds =
-    new Set<string>();
+  const seenJobIds = new Set<string>();
 
-  const seenCursors =
-    new Set<string>();
+  const seenCursors = new Set<string>();
 
   let cursor = "0";
   let upstreamTotal = 0;
@@ -551,10 +529,7 @@ async function fetchAllJobs(
   while (hasNextPage) {
 
     if (seenCursors.has(cursor)) {
-      console.warn(
-        "Repeated cursor:",
-        cursor
-      );
+      console.warn("Repeated cursor:", cursor);
       break;
     }
 
@@ -573,10 +548,7 @@ async function fetchAllJobs(
         0
       );
 
-    for (
-      const edge of
-      result.edges || []
-    ) {
+    for (const edge of result.edges || []) {
       const id = edge?.node?.id;
 
       if (
@@ -627,9 +599,7 @@ async function fetchAllJobs(
       allJobsCache.delete(oldest);
   }
 
-  console.log(
-    `UPWORK FETCH COMPLETE: ${allEdges.length}/${upstreamTotal}`
-  );
+  console.log(`UPWORK FETCH COMPLETE: ${allEdges.length}/${upstreamTotal}`);
 
   return {
     edges: allEdges,
@@ -790,18 +760,15 @@ function formatJob(edge: any) {
    API ROUTE
 ========================= */
 
-export async function GET(
-  request: NextRequest
-) {
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } =
-      new URL(request.url);
+    const { searchParams } = new URL(request.url);
 
-    const searchExpression =
-      (
-        searchParams.get("q") ||
-        "Wix"
-      ).trim();
+    const searchExpression = (
+      searchParams.get("q")?.trim() ||
+      searchParams.get("skills")?.trim() ||
+      ""
+    );
 
     const requestedOffset =
       Number(
@@ -853,9 +820,7 @@ export async function GET(
         .map(x => x.trim())
         .filter(Boolean);
 
-    const optionalNumber = (
-      value: string | null
-    ) => {
+    const optionalNumber = (value: string | null) => {
       if (!value?.trim())
         return undefined;
 
@@ -1021,63 +986,63 @@ export async function GET(
       }
     });
 
-} catch (error: any) {
+  } catch (error: any) {
 
     console.error(
-        "UPWORK JOB SEARCH ERROR:",
-        error
+      "UPWORK JOB SEARCH ERROR:",
+      error
     );
 
     if (
-        isUpworkReauthError(
-            error
-        )
+      isUpworkReauthError(
+        error
+      )
     ) {
 
-        return NextResponse.json(
-            {
-                success: false,
+      return NextResponse.json(
+        {
+          success: false,
 
-                jobs: [],
-                total: 0,
-                totalCount: 0,
+          jobs: [],
+          total: 0,
+          totalCount: 0,
 
-                error:
-                    "UPWORK_REAUTH_REQUIRED",
+          error:
+            "UPWORK_REAUTH_REQUIRED",
 
-                reauthRequired:
-                    true,
+          reauthRequired:
+            true,
 
-                message:
-                    "Upwork authorization is required.",
+          message:
+            "Upwork authorization is required.",
 
-                reauthReason:
-                    error?.reason ||
-                    "The Upwork refresh token is no longer valid.",
+          reauthReason:
+            error?.reason ||
+            "The Upwork refresh token is no longer valid.",
 
-                reauthUrl:
-                    "/api/upwork/connect"
-            },
-            {
-                status: 401
-            }
-        );
+          reauthUrl:
+            "/api/upwork/connect"
+        },
+        {
+          status: 401
+        }
+      );
     }
 
     return NextResponse.json(
-        {
-            success: false,
+      {
+        success: false,
 
-            jobs: [],
-            total: 0,
+        jobs: [],
+        total: 0,
 
-            error:
-                error?.message ||
-                "Unable to search Upwork jobs"
-        },
-        {
-            status: 500
-        }
+        error:
+          error?.message ||
+          "Unable to search Upwork jobs"
+      },
+      {
+        status: 500
+      }
     );
-}
+  }
 }
