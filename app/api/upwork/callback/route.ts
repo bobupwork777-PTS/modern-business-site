@@ -93,15 +93,6 @@ export async function GET(
             "UPWORK CALLBACK: exchanging authorization code"
         );
 
-        /*
-         * Exchange code for:
-         *
-         * access_token
-         * refresh_token
-         *
-         * saveTokens() then stores these
-         * in MongoDB.
-         */
         await exchangeUpworkAuthorizationCode(
             code
         );

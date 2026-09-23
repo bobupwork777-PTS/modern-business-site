@@ -37,7 +37,7 @@ export function AuthProvider({
                 name: userData.name,
                 role: userData.role
             });
-            console.log("User:", userData);
+            // console.log("User:", userData);
         }
         else{
             // fallback from cookie

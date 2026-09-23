@@ -34,6 +34,7 @@ type Job = {
         totalHires?: number;
         totalPostedJobs?: number;
         verificationStatus?: string;
+        memberSinceDateTime?: string;
         companyRid?: string;
         edcUserId?: string;
         totalSpent?: { displayValue?: string; currency?: string };
@@ -54,7 +55,7 @@ type AIReport = { relevant: boolean; proposal?: string; reason?: string; error?:
 type PageInfo = { endCursor: string | null; hasNextPage: boolean };
 type PaymentFilter = "all" | "verified" | "unverified";
 type AddOptionType = "country" | "skill";
-type SortColumn = "status" | "country" | "feedback" | "applicants" | "verified";
+type SortColumn = "status" | "country" | "feedback" | "applicants" | "verified" | "published";
 type SortDirection = "desc" | "asc";
 
 const PAGE_SIZE = 50;
@@ -76,8 +77,42 @@ const postedTimeOptions = [
     { value: "30", label: "Last 30 days" }
 ];
 
+const COUNTRY_GROUPS = [
+    ["AUS", "Australia", "New Zealand", "NZ", "Indonesia"],
+    ["CAN", "Canada", "US", "USA", "United State", "United States", "Mexico"],
+    ["UAE", "United Arab Emirates"],
+    ["UK", "United Kingdom", "Ireland", "Norway", "Finland", "Sweden", "Switzerland"],
+    ["SGP", "Singapore"],
+    ["ZAF", "South Africa"],
+    ["Germany", "DEU"],
+    ["France", "FRA"]
+];
+
+
+
+const SKILL_GROUPS = [
+    ["wix", "Velo", "wix studio"],
+    ["relume", "Finsweet", "webflow"],
+    ["GHL", "Go High Level"]
+];
+
+
+
+function sortByCustomOrder(items: string[], order: string[]) {
+    return [...items].sort((a, b) => {
+        const aIndex = order.indexOf(a);
+        const bIndex = order.indexOf(b);
+
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+
+        return aIndex - bIndex;
+    });
+}
+
 export default function UpworkJobsPage() {
-    const [search, setSearch] = useState("Wix");
+    const [search, setSearch] = useState("");
+    const [searchMode, setSearchMode] = useState<"manual" | "quick" | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -98,6 +133,7 @@ export default function UpworkJobsPage() {
     const [skillOptions, setSkillOptions] = useState<string[]>([]);
     const [countryOptions, setCountryOptions] = useState<string[]>([]);
     const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+    const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
     const [budgetMin, setBudgetMin] = useState("");
     const [budgetMax, setBudgetMax] = useState("");
     const [paymentVerified, setPaymentVerified] = useState<PaymentFilter>("all");
@@ -121,15 +157,16 @@ export default function UpworkJobsPage() {
         { key: "url", label: "URL" },
         { key: "country", label: "Country" },
         { key: "client", label: "Client" },
+        { key: "memberSince", label: "Member Since" },
+        { key: "published", label: "Published" },
+        { key: "activity", label: "Activity" },
         { key: "feedback", label: "Feedback" },
         { key: "applicants", label: "Applicants" },
         { key: "verified", label: "Verified" },
-        { key: "budget", label: "Budget" },
-        { key: "published", label: "Published" },
-        { key: "activity", label: "Activity" }
+        { key: "budget", label: "Budget" }
     ];
 
-    const [selectedExportColumns,setSelectedExportColumns]=useState([
+    const [selectedExportColumns, setSelectedExportColumns] = useState([
         "title",
         "description",
         "url"
@@ -214,7 +251,8 @@ export default function UpworkJobsPage() {
         page = 1,
         cursor = "0",
         keyword?: string,
-        previousClientFirstOverride?: boolean
+        previousClientFirstOverride?: boolean,
+        selectedSkillsOverride?: string[]
     ) {
 
         const searchKeyword =
@@ -222,7 +260,12 @@ export default function UpworkJobsPage() {
                 keyword ??
                 search
             ).trim() ||
-            "Wix";
+            "";
+
+        const activeKeyword =
+            searchMode === "quick" || searchMode === "manual"
+                ? searchKeyword
+                : "";
 
         const prioritizePreviousClient =
             previousClientFirstOverride ??
@@ -237,7 +280,7 @@ export default function UpworkJobsPage() {
             const params =
                 new URLSearchParams({
                     q:
-                        searchKeyword,
+                        activeKeyword,
 
                     first:
                         String(
@@ -256,6 +299,17 @@ export default function UpworkJobsPage() {
                 params.set(
                     "countries",
                     selectedCountries.join(",")
+                );
+            }
+
+            const activeSkills =
+                selectedSkillsOverride ??
+                selectedSkills;
+
+            if (activeSkills.length) {
+                params.set(
+                    "skills",
+                    activeSkills.join(",")
                 );
             }
 
@@ -318,16 +372,15 @@ export default function UpworkJobsPage() {
                 );
             }
 
+            console.log("API Params:", Object.fromEntries(params.entries()));
+
+
+
             const response =
-                await fetch(
-                    `/api/upwork/jobs?${params.toString()}`,
+                await fetch(`/api/upwork/jobs?${params.toString()}`,
                     {
-                        method:
-                            "GET",
-
-                        cache:
-                            "no-store",
-
+                        method:"GET",
+                        cache:"no-store",
                         headers: {
                             Accept:
                                 "application/json"
@@ -351,8 +404,7 @@ export default function UpworkJobsPage() {
                     "content-type"
                 ) || "";
 
-            const raw =
-                await response.text();
+            const raw = await response.text();
 
             let data:
                 any = {};
@@ -391,6 +443,9 @@ export default function UpworkJobsPage() {
                         JSON.parse(
                             raw
                         );
+                    console.log("========== GRAPHQL RESPONSE DATA ==========");
+                    console.log(data);
+                    console.log("============================================");
 
                 } catch {
 
@@ -640,8 +695,27 @@ export default function UpworkJobsPage() {
         window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
-    function handleQuickSearch(keyword: string) {
+    function handleQuickSearch(keyword: string, skills: string[] = []) {
+
+        setSearchMode("quick");
+
         setSearch(keyword);
+
+        if (skills.length) {
+            setSelectedSkills(skills);
+        }
+
+        setPageCursors({
+            1: "0"
+        });
+
+        void searchJobs(
+            1,
+            "0",
+            keyword,
+            undefined,
+            skills
+        );
     }
 
     function toggleCountry(country: string) {
@@ -657,8 +731,23 @@ export default function UpworkJobsPage() {
         );
     }
 
+    function toggleSkillGroup(index: number) {
+        const group = SKILL_GROUPS[index];
+
+        const isSelected = group.every(skill =>
+            selectedSkills.includes(skill)
+        );
+
+        setSelectedSkills(current =>
+            isSelected
+                ? current.filter(item => !group.includes(item))
+                : [...new Set([...current, ...group])]
+        );
+    }
+
     function clearFilters() {
         setSelectedCountries([...countryOptions]);
+        setSelectedSkills([]);
         setBudgetMin("");
         setBudgetMax("");
         setPaymentVerified("all");
@@ -799,6 +888,20 @@ export default function UpworkJobsPage() {
         if (Number.isNaN(date.getTime())) return "-";
         return date.toLocaleString("en-US", {
             month: "numeric", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true
+        });
+    }
+
+    function formatMemberSince(value?: string) {
+        if (!value) return "-";
+
+        const date = new Date(value);
+
+        if (Number.isNaN(date.getTime())) return "-";
+
+        return date.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
         });
     }
 
@@ -997,11 +1100,11 @@ export default function UpworkJobsPage() {
 
         const data = displayedJobs.map(job => {
 
-            const row:any = {};
+            const row: any = {};
 
             selectedExportColumns.forEach(column => {
 
-                switch(column) {
+                switch (column) {
 
                     case "status":
                         row.Status = getStatusText(job);
@@ -1030,6 +1133,10 @@ export default function UpworkJobsPage() {
                     case "client":
                         row.Client =
                             `${job.client?.totalPostedJobs ?? 0} jobs posted | ${job.client?.totalSpent?.displayValue || "$0"} spent`;
+                        break;
+
+                    case "memberSince":
+                        row["Member Since"] = formatMemberSince(job.client?.memberSinceDateTime);
                         break;
 
                     case "feedback":
@@ -1116,6 +1223,11 @@ export default function UpworkJobsPage() {
                         comparison = Number(isVerified(a.job.client?.verificationStatus)) -
                             Number(isVerified(b.job.client?.verificationStatus));
                         break;
+
+                    case "published":
+                        comparison = new Date(a.job.publishedDateTime || 0).getTime() -
+                            new Date(b.job.publishedDateTime || 0).getTime();
+                        break;
                 }
 
                 if (comparison !== 0) {
@@ -1144,6 +1256,32 @@ export default function UpworkJobsPage() {
             return a.index - b.index;
         })
         .map(item => item.job);
+
+
+
+    function getCountryGroup(country: string) {
+        return COUNTRY_GROUPS.find(group =>
+            group.some(item =>
+                item.toLowerCase() === country.toLowerCase()
+            )
+        ) || [country];
+    }
+
+    function getSkillGroup(skill: string) {
+        return SKILL_GROUPS.find(group =>
+            group.some(item =>
+                item.toLowerCase() === skill.toLowerCase()
+            )
+        ) || [skill];
+    }
+
+    function getAvailableGroupItems(group: string[], options: string[]) {
+        return options.filter(option =>
+            group.some(item =>
+                item.toLowerCase() === option.toLowerCase()
+            )
+        );
+    }
 
     return (
         <div className="min-h-screen flex flex-col bg-[#0D163F]">
@@ -1209,16 +1347,70 @@ export default function UpworkJobsPage() {
                                             ALL
                                         </button>
                                         {optionsLoading ? (
-                                            <span className="text-[11px] text-gray-400">Loading countries...</span>
+                                            <span className="text-[11px] text-gray-400">
+                                                Loading countries...
+                                            </span>
                                         ) : countryOptions.length === 0 ? (
-                                            <span className="text-[11px] text-gray-400">No countries added yet.</span>
+                                            <span className="text-[11px] text-gray-400">
+                                                No countries added yet.
+                                            </span>
                                         ) : countryOptions.map(country => {
-                                            const selected = selectedCountries.includes(country);
+
+                                            const group = getCountryGroup(country);
+
+                                            const selected = group
+                                                .filter(item =>
+                                                    countryOptions.some(
+                                                        country =>
+                                                            country.toLowerCase() === item.toLowerCase()
+                                                    )
+                                                )
+                                                .every(item =>
+                                                    selectedCountries.some(
+                                                        selected =>
+                                                            selected.toLowerCase() === item.toLowerCase()
+                                                    )
+                                                );
+
                                             return (
                                                 <button
                                                     key={country}
                                                     type="button"
-                                                    onClick={() => toggleCountry(country)}
+                                                    onClick={() => {
+
+                                                        setSelectedCountries(current => {
+
+                                                            const realGroup = group.filter(item =>
+                                                                countryOptions.some(
+                                                                    country =>
+                                                                        country.toLowerCase() === item.toLowerCase()
+                                                                )
+                                                            );
+
+
+                                                            if (selected) {
+
+                                                                return current.filter(
+                                                                    item =>
+                                                                        !realGroup.some(
+                                                                            groupItem =>
+                                                                                groupItem.toLowerCase() === item.toLowerCase()
+                                                                        )
+                                                                );
+
+                                                            }
+
+
+                                                            return [
+                                                                ...new Set([
+                                                                    ...current,
+                                                                    ...realGroup
+                                                                ])
+                                                            ];
+
+                                                        });
+
+                                                    }}
                                                     className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${selected
                                                         ? "border-blue-600 bg-blue-600 text-white"
                                                         : "border-gray-300 bg-white text-gray-600 hover:border-blue-500 hover:text-blue-600"
@@ -1227,6 +1419,7 @@ export default function UpworkJobsPage() {
                                                     {country}
                                                 </button>
                                             );
+
                                         })}
                                     </div>
                                 </div>
@@ -1314,8 +1507,18 @@ export default function UpworkJobsPage() {
                                     <input
                                         type="text"
                                         value={search}
-                                        onChange={e => setSearch(e.target.value)}
-                                        onKeyDown={e => { if (e.key === "Enter" && !loading) searchJobs(1, "0"); }}
+                                        disabled={searchMode === "quick"}
+                                        onChange={e => {
+                                            setSearchMode("manual");
+                                            setSelectedSkills([]);
+                                            setSearch(e.target.value);
+                                        }}
+                                        onKeyDown={e => {
+                                            if (e.key === "Enter" && !loading) {
+                                                setSearchMode("manual");
+                                                searchJobs(1, "0");
+                                            }
+                                        }}
                                         placeholder="Wix, Webflow, Shopify, Next.js..."
                                         className="w-full bg-transparent outline-none border-none text-gray-900 text-xs"
                                     />
@@ -1325,7 +1528,10 @@ export default function UpworkJobsPage() {
                             <div className="flex min-w-[160px] flex-col gap-2">
                                 <button
                                     type="button"
-                                    onClick={() => searchJobs(1, "0")}
+                                    onClick={() => {
+                                        setSearchMode("manual");
+                                        searchJobs(1, "0");
+                                    }}
                                     disabled={loading}
                                     className="h-[42px] rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400 flex items-center justify-center gap-1.5"
                                 >
@@ -1346,19 +1552,46 @@ export default function UpworkJobsPage() {
                                     <span className="text-[11px] text-gray-400">Loading skills...</span>
                                 ) : skillOptions.length === 0 ? (
                                     <span className="text-[11px] text-gray-400">No skills added yet.</span>
-                                ) : skillOptions.map(item => (
-                                    <button
-                                        key={item}
-                                        type="button"
-                                        onClick={() => handleQuickSearch(item)}
-                                        className={`px-2.5 py-1 rounded-full border text-[12px] font-medium transition ${search === item
-                                            ? "bg-blue-600 text-white border-blue-600"
-                                            : "bg-white text-gray-600 border-gray-300 hover:border-blue-500 hover:text-blue-600"
-                                            }`}
-                                    >
-                                        {item}
-                                    </button>
-                                ))}
+                                ) : skillOptions.map(skill => {
+
+                                    const group = getSkillGroup(skill);
+
+                                    const selected = group.every(item =>
+                                        selectedSkills.includes(item)
+                                    );
+
+                                    return (
+                                        <button
+                                            key={skill}
+                                            type="button"
+                                            onClick={() => {
+
+                                                const updatedSkills = selected
+                                                    ? selectedSkills.filter(item => !group.includes(item))
+                                                    : [...new Set([...selectedSkills, ...group])];
+
+                                                setSelectedSkills(updatedSkills);
+
+                                                if (updatedSkills.length > 0) {
+                                                    setSearchMode("quick");
+
+                                                    // Clear manual search text
+                                                    setSearch("");
+                                                } else {
+                                                    setSearchMode(null);
+                                                }
+
+                                            }}
+                                            className={`px-2.5 py-1 rounded-full border text-[12px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${selected
+                                                ? "bg-blue-600 text-white border-blue-600"
+                                                : "bg-white text-gray-600 border-gray-300 hover:border-blue-500 hover:text-blue-600"
+                                                }`}
+                                        >
+                                            {skill}
+                                        </button>
+                                    );
+
+                                })}
                             </div>
 
                             <button
@@ -1436,7 +1669,7 @@ export default function UpworkJobsPage() {
                         </div>
 
                         <div className="w-full overflow-hidden">
-                            <table className="w-full table-fixed border-collapse text-[11px]">
+                            <table className="w-full table-fixed border-collapse text-[11px]"><style>{`td,th{overflow:hidden;text-overflow:ellipsis;} .break-cell{white-space:normal;word-break:break-word;}`}</style>
                                 <colgroup>
                                     <col className="w-[6.5%]" />
                                     <col className="w-[5%]" />
@@ -1445,12 +1678,13 @@ export default function UpworkJobsPage() {
                                     <col className="w-[4%]" />
                                     <col className="w-[6%]" />
                                     <col className="w-[7%]" />
+                                    <col className="w-[8%]" />
+                                    <col className="w-[8%]" />
+                                    <col className="w-[8%]" />
                                     <col className="w-[3%]" />
                                     <col className="w-[3%]" />
+                                    <col className="w-[8%]" />
                                     <col className="w-[5%]" />
-                                    <col className="w-[7%]" />
-                                    <col className="w-[8%]" />
-                                    <col className="w-[8%]" />
                                     <col className="w-[7.5%]" />
                                 </colgroup>
 
@@ -1479,6 +1713,17 @@ export default function UpworkJobsPage() {
                                             </button>
                                         </th>
                                         <th className={thClass}>Client</th>
+                                        <th className={thClass}>Member Since</th>
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("published")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Published <span className="text-[10px]">{getSortIndicator("published")}</span>
+                                            </button>
+                                        </th>
+                                        <th className={thClass}>Activity</th>
                                         <th className={thClass}>
                                             <button
                                                 type="button"
@@ -1507,8 +1752,7 @@ export default function UpworkJobsPage() {
                                             </button>
                                         </th>
                                         <th className={thClass}>Budget</th>
-                                        <th className={thClass}>Published</th>
-                                        <th className={thClass}>Activity</th>
+
                                         <th className={thClass}>Action</th>
                                     </tr>
                                 </thead>
@@ -1516,7 +1760,7 @@ export default function UpworkJobsPage() {
                                 <tbody>
                                     {!hasSearched ? (
                                         <tr>
-                                            <td colSpan={14} className="py-12 text-center">
+                                            <td colSpan={15} className="py-12 text-center">
                                                 <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center mx-auto">
                                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-600">
                                                         <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
@@ -1528,7 +1772,7 @@ export default function UpworkJobsPage() {
                                         </tr>
                                     ) : loading ? (
                                         <tr>
-                                            <td colSpan={14} className="py-12 text-center">
+                                            <td colSpan={15} className="py-12 text-center">
                                                 <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto" />
                                                 <h3 className="mt-2 text-sm font-semibold text-gray-800">Searching Upwork...</h3>
                                                 <p className="text-gray-400 text-[12px] mt-1">Fetching latest opportunities.</p>
@@ -1536,7 +1780,7 @@ export default function UpworkJobsPage() {
                                         </tr>
                                     ) : jobs.length === 0 ? (
                                         <tr>
-                                            <td colSpan={14} className="py-12 text-center">
+                                            <td colSpan={15} className="py-12 text-center">
                                                 <h3 className="text-gray-800 text-sm font-semibold">No jobs found</h3>
                                                 <p className="text-gray-400 text-[12px] mt-1">Try searching another keyword.</p>
                                             </td>
@@ -1608,16 +1852,10 @@ export default function UpworkJobsPage() {
                                                         </div>
                                                     </td>
 
-                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.client?.totalFeedback ?? 0}</td>
-                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.totalApplicants ?? 0}</td>
-
-                                                    <td className="px-1.5 py-2 align-top">
-                                                        <span className={`text-[11px] leading-[15px] font-medium ${verified ? "text-green-600" : "text-gray-500"}`}>
-                                                            {verified ? "Verified" : "Unverified"}
-                                                        </span>
+                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-nowrap">
+                                                        {formatMemberSince(job.client?.memberSinceDateTime)}
                                                     </td>
 
-                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal break-words">{getBudget(job)}</td>
                                                     <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal">{formatDate(job.publishedDateTime)}</td>
 
                                                     <td className="px-1.5 py-2 align-top">
@@ -1628,6 +1866,18 @@ export default function UpworkJobsPage() {
                                                             <span>Unanswered: {job.activity?.totalUnansweredInvites ?? 0}</span>
                                                         </div>
                                                     </td>
+
+                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.client?.totalFeedback ?? 0}</td>
+
+                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.totalApplicants ?? 0}</td>
+
+                                                    <td className="px-1.5 py-2 align-top">
+                                                        <span className={`text-[11px] leading-[15px] font-medium ${verified ? "text-green-600" : "text-gray-500"}`}>
+                                                            {verified ? "Verified" : "Unverified"}
+                                                        </span>
+                                                    </td>
+
+                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal break-words">{getBudget(job)}</td>
 
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col gap-1.5">
@@ -2112,5 +2362,5 @@ function StatCard({ label, value }: { label: string; value: number }) {
     );
 }
 
-const thClass = "px-1.5 py-2 text-left text-[12px] leading-[13px] font-semibold uppercase tracking-[0.2px] text-gray-600 whitespace-nowrap align-middle";
+const thClass = "px-1.5 py-2 text-left text-[12px] leading-[13px] font-semibold tracking-[0.2px] text-gray-600 whitespace-nowrap align-middle";
 const cellClass = "px-1.5 py-2 align-top text-[11px] leading-[15px] text-gray-800 whitespace-nowrap";
