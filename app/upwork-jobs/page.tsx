@@ -157,7 +157,7 @@ export default function UpworkJobsPage() {
         { key: "url", label: "URL" },
         { key: "country", label: "Country" },
         { key: "client", label: "Client" },
-        { key: "memberSince", label: "Member Since" },
+        // { key: "memberSince", label: "Member Since" },
         { key: "published", label: "Published" },
         { key: "activity", label: "Activity" },
         { key: "feedback", label: "Feedback" },
@@ -374,8 +374,6 @@ export default function UpworkJobsPage() {
 
             console.log("API Params:", Object.fromEntries(params.entries()));
 
-
-
             const response =
                 await fetch(`/api/upwork/jobs?${params.toString()}`,
                     {
@@ -443,9 +441,6 @@ export default function UpworkJobsPage() {
                         JSON.parse(
                             raw
                         );
-                    console.log("========== GRAPHQL RESPONSE DATA ==========");
-                    console.log(data);
-                    console.log("============================================");
 
                 } catch {
 
@@ -1135,9 +1130,9 @@ export default function UpworkJobsPage() {
                             `${job.client?.totalPostedJobs ?? 0} jobs posted | ${job.client?.totalSpent?.displayValue || "$0"} spent`;
                         break;
 
-                    case "memberSince":
-                        row["Member Since"] = formatMemberSince(job.client?.memberSinceDateTime);
-                        break;
+                    // case "memberSince":
+                    //     row["Member Since"] = formatMemberSince(job.client?.memberSinceDateTime);
+                    //     break;
 
                     case "feedback":
                         row.Feedback = job.client?.totalFeedback ?? 0;
@@ -1678,7 +1673,7 @@ export default function UpworkJobsPage() {
                                     <col className="w-[4%]" />
                                     <col className="w-[6%]" />
                                     <col className="w-[7%]" />
-                                    <col className="w-[8%]" />
+                                    {/* <col className="w-[8%]" /> */}
                                     <col className="w-[8%]" />
                                     <col className="w-[8%]" />
                                     <col className="w-[3%]" />
@@ -1713,7 +1708,7 @@ export default function UpworkJobsPage() {
                                             </button>
                                         </th>
                                         <th className={thClass}>Client</th>
-                                        <th className={thClass}>Member Since</th>
+                                        {/* <th className={thClass}>Member Since</th> */}
                                         <th className={thClass}>
                                             <button
                                                 type="button"
@@ -1852,9 +1847,9 @@ export default function UpworkJobsPage() {
                                                         </div>
                                                     </td>
 
-                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-nowrap">
+                                                    {/* <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-nowrap">
                                                         {formatMemberSince(job.client?.memberSinceDateTime)}
-                                                    </td>
+                                                    </td> */}
 
                                                     <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal">{formatDate(job.publishedDateTime)}</td>
 

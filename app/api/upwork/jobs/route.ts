@@ -408,15 +408,6 @@ async function fetchBatch(
     ]
   };
 
-  console.log(
-    "UPWORK FETCH:",
-    {
-      search: searchExpression,
-      first,
-      after
-    }
-  );
-
   const body = await callUpworkGraphQL(QUERY, variables);
 
   const result = body?.data?.marketplaceJobPostingsSearch;
@@ -608,8 +599,6 @@ async function fetchAllJobs(searchExpression: string) {
       allJobsCache.delete(oldest);
   }
 
-  console.log(`UPWORK FETCH COMPLETE: ${allEdges.length}/${upstreamTotal}`);
-
   return {
     edges: allEdges,
     upstreamTotal
@@ -623,16 +612,6 @@ async function fetchAllJobs(searchExpression: string) {
 
 function formatJob(edge: any) {
   const job = edge?.node || {};
-
-  console.log(
-    "CLIENT DATA:",
-    {
-      jobId: job.id,
-      ciphertext: job.ciphertext,
-      client: job.client,
-      relation: job.freelancerClientRelation
-    }
-  );
 
   const activity =
     job?.job
