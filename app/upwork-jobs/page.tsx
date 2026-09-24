@@ -267,9 +267,7 @@ export default function UpworkJobsPage() {
                 ? searchKeyword
                 : "";
 
-        const prioritizePreviousClient =
-            previousClientFirstOverride ??
-            previousClientFirst;
+        const prioritizePreviousClient = previousClientFirstOverride ?? previousClientFirst;
 
         try {
 
@@ -291,16 +289,14 @@ export default function UpworkJobsPage() {
                         cursor
                 });
 
-            if (
-                selectedCountries.length &&
-                !allCountriesSelected
-            ) {
+if (selectedCountries.length) {
 
-                params.set(
-                    "countries",
-                    selectedCountries.join(",")
-                );
-            }
+    params.set(
+        "countries",
+        selectedCountries.join(",")
+    );
+
+}
 
             const activeSkills =
                 selectedSkillsOverride ??
@@ -362,10 +358,7 @@ export default function UpworkJobsPage() {
                 );
             }
 
-            if (
-                prioritizePreviousClient
-            ) {
-
+            if (prioritizePreviousClient) {
                 params.set(
                     "previousClient",
                     "true"
