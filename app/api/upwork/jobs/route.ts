@@ -300,6 +300,15 @@ function normalizeCountry(value?: string) {
     .toLowerCase();
 }
 
+function normalizeJobId(value?: string | null) {
+  return String(value || "")
+    .trim()
+    .replace(/^~/, "");
+}
+
+const MEMBER_SINCE_DEBUG_JOB_ID =
+  "022100716368678466465";
+
 function matchesAllFilters(
   edge: any,
   options: SearchOptions
@@ -615,6 +624,16 @@ async function fetchAllJobs(searchExpression: string) {
 function formatJob(edge: any) {
   const job = edge?.node || {};
 
+  console.log(
+    "CLIENT DATA:",
+    {
+      jobId: job.id,
+      ciphertext: job.ciphertext,
+      client: job.client,
+      relation: job.freelancerClientRelation
+    }
+  );
+
   const activity =
     job?.job
       ?.activityStat
@@ -647,6 +666,13 @@ function formatJob(edge: any) {
 
     publishedDateTime:
       job.publishedDateTime ||
+      null,
+
+    // Kept at top level as well so the table can use
+    // job.memberSinceDateTime directly.
+    memberSinceDateTime:
+      job.client
+        ?.memberSinceDateTime ||
       null,
 
     totalApplicants:
@@ -691,6 +717,15 @@ function formatJob(edge: any) {
         job.client
           ?.verificationStatus ||
         "",
+
+      // IMPORTANT:
+      // The GraphQL query already requests this field.
+      // It must also be copied into formatJob(), otherwise
+      // it disappears from the JSON returned to the frontend.
+      memberSinceDateTime:
+        job.client
+          ?.memberSinceDateTime ||
+        null,
 
       totalSpent:
         job.client
@@ -918,6 +953,44 @@ export async function GET(request: NextRequest) {
       await fetchAllJobs(
         searchExpression
       );
+
+    // Debug the exact Upwork job requested by the user.
+    // This confirms whether memberSinceDateTime is actually
+    // present in the raw marketplaceJobPostingsSearch response.
+    const memberSinceDebugEdge =
+      allEdges.find((edge: any) => {
+        const node = edge?.node;
+
+        return (
+          normalizeJobId(node?.id) ===
+            MEMBER_SINCE_DEBUG_JOB_ID ||
+          normalizeJobId(node?.ciphertext) ===
+            MEMBER_SINCE_DEBUG_JOB_ID
+        );
+      });
+
+    if (memberSinceDebugEdge) {
+      console.log(
+        "MEMBER SINCE DEBUG:",
+        {
+          requestedJobId:
+            MEMBER_SINCE_DEBUG_JOB_ID,
+          graphQLJobId:
+            memberSinceDebugEdge
+              ?.node?.id,
+          ciphertext:
+            memberSinceDebugEdge
+              ?.node?.ciphertext,
+          memberSinceDateTime:
+            memberSinceDebugEdge
+              ?.node?.client
+              ?.memberSinceDateTime,
+          client:
+            memberSinceDebugEdge
+              ?.node?.client
+        }
+      );
+    }
 
     let filteredEdges =
       allEdges.filter(
