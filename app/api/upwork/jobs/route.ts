@@ -112,6 +112,7 @@ type GraphQLResult = {
 
 type SearchOptions = {
   countries: string[];
+  skills: string[];
   budgetMin?: number;
   budgetMax?: number;
   paymentVerified: "all" | "verified" | "unverified";
@@ -313,69 +314,117 @@ function matchesAllFilters(
   edge: any,
   options: SearchOptions
 ) {
+
   const job = edge?.node;
 
   if (!job?.id) return false;
 
+
+  // COUNTRY FILTER
   if (options.countries.length) {
+
     const jobCountry =
       normalizeCountry(
         job.client?.location?.country
       );
 
     const selected =
-      options.countries
-        .map(normalizeCountry);
+      options.countries.map(normalizeCountry);
 
     if (!selected.includes(jobCountry))
       return false;
   }
 
+
+  // ADD SKILLS FILTER HERE
+  if (options.skills.length) {
+
+    const text =
+      `${job.title || ""} ${job.description || ""}`
+        .toLowerCase();
+
+    const matched =
+      options.skills.some(skill =>
+        text.includes(
+          skill.toLowerCase()
+        )
+      );
+
+    if (!matched)
+      return false;
+  }
+
+
+  // BUDGET FILTER
   if (
     !isWithinBudget(
       job,
       options.budgetMin,
       options.budgetMax
     )
-  ) return false;
+  ) {
+    return false;
+  }
 
+
+  // APPLICANTS FILTER
   const applicants =
     Number(job.totalApplicants || 0);
 
   if (
     options.applicantMin !== undefined &&
     applicants < options.applicantMin
-  ) return false;
+  ) {
+    return false;
+  }
+
 
   if (
     options.applicantMax !== undefined &&
     applicants > options.applicantMax
-  ) return false;
+  ) {
+    return false;
+  }
 
+
+  // PAYMENT VERIFIED FILTER
   const verified =
     isVerifiedStatus(
       job.client?.verificationStatus
     );
 
+
   if (
     options.paymentVerified === "verified" &&
     !verified
-  ) return false;
+  ) {
+    return false;
+  }
+
 
   if (
     options.paymentVerified === "unverified" &&
     verified
-  ) return false;
+  ) {
+    return false;
+  }
 
+
+  // POSTED TIME FILTER
   if (
     !isWithinPostedDays(
       job.publishedDateTime,
       options.postedDays
     )
-  ) return false;
+  ) {
+    return false;
+  }
+
 
   return true;
 }
+
+
 
 
 /* =========================
@@ -507,8 +556,6 @@ async function fetchAllJobs(searchExpression: string) {
   const cached = allJobsCache.get(cacheKey);
 
   if (cached && cached.expiresAt > Date.now()) {
-
-    console.log(`UPWORK CACHE HIT: ${cached.edges.length}`);
 
     return {
       edges: cached.edges,
@@ -834,6 +881,14 @@ export async function GET(request: NextRequest) {
         .map(x => x.trim())
         .filter(Boolean);
 
+    const skills =
+      (
+      searchParams.get("skills") || ""
+      )
+      .split(",")
+      .map(x => x.trim())
+      .filter(Boolean);
+
     const optionalNumber = (value: string | null) => {
       if (!value?.trim())
         return undefined;
@@ -915,15 +970,16 @@ export async function GET(request: NextRequest) {
       ) === "true";
 
     const options: SearchOptions = {
-      countries,
-      budgetMin,
-      budgetMax,
-      paymentVerified,
-      applicantMin,
-      applicantMax,
-      postedDays,
-      previousClient
-    };
+  countries,
+  skills,
+  budgetMin,
+  budgetMax,
+  paymentVerified,
+  applicantMin,
+  applicantMax,
+  postedDays,
+  previousClient
+};
 
     const {
       edges: allEdges,
@@ -933,43 +989,6 @@ export async function GET(request: NextRequest) {
         searchExpression
       );
 
-    // Debug the exact Upwork job requested by the user.
-    // This confirms whether memberSinceDateTime is actually
-    // present in the raw marketplaceJobPostingsSearch response.
-    const memberSinceDebugEdge =
-      allEdges.find((edge: any) => {
-        const node = edge?.node;
-
-        return (
-          normalizeJobId(node?.id) ===
-            MEMBER_SINCE_DEBUG_JOB_ID ||
-          normalizeJobId(node?.ciphertext) ===
-            MEMBER_SINCE_DEBUG_JOB_ID
-        );
-      });
-
-    if (memberSinceDebugEdge) {
-      console.log(
-        "MEMBER SINCE DEBUG:",
-        {
-          requestedJobId:
-            MEMBER_SINCE_DEBUG_JOB_ID,
-          graphQLJobId:
-            memberSinceDebugEdge
-              ?.node?.id,
-          ciphertext:
-            memberSinceDebugEdge
-              ?.node?.ciphertext,
-          memberSinceDateTime:
-            memberSinceDebugEdge
-              ?.node?.client
-              ?.memberSinceDateTime,
-          client:
-            memberSinceDebugEdge
-              ?.node?.client
-        }
-      );
-    }
 
     let filteredEdges =
       allEdges.filter(
@@ -1000,22 +1019,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const total =
-      filteredEdges.length;
+    const total = filteredEdges.length;
 
-    const jobs =
-      filteredEdges
-        .slice(
-          offset,
-          offset + first
-        )
-        .map(formatJob);
+    const jobs = filteredEdges
+                      .slice(
+                        offset,
+                        offset + first
+                      )
+                      .map(formatJob);
 
-    const nextOffset =
-      offset + first;
+    const nextOffset = offset + first;
 
-    const hasNextPage =
-      nextOffset < total;
+    const hasNextPage = nextOffset < total;
 
     return NextResponse.json({
       success: true,
@@ -1040,10 +1055,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
 
-    console.error(
-      "UPWORK JOB SEARCH ERROR:",
-      error
-    );
+    console.error( "UPWORK JOB SEARCH ERROR:", error);
 
     if (
       isUpworkReauthError(
