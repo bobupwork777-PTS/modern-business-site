@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 
-
 const PermissionSchema = new mongoose.Schema({
 
     userId:{
@@ -8,15 +7,11 @@ const PermissionSchema = new mongoose.Schema({
         ref:"User",
         required:true
     },
-
-
     pageId:{
         type:mongoose.Schema.Types.ObjectId,
         ref:"Page",
         required:true
     },
-
-
     access:{
         type:Boolean,
         default:false
@@ -24,10 +19,8 @@ const PermissionSchema = new mongoose.Schema({
 
 });
 
-
 const Permission =
 mongoose.models.Permission ||
 mongoose.model("Permission", PermissionSchema);
-
 
 export default Permission;
