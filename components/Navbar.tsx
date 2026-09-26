@@ -88,40 +88,49 @@ export default function Navbar() {
     return (
         <header className="absolute top-0 w-full z-50">
             <nav className="max-w-7xl mx-auto flex items-center justify-between px-5 py-5">
-                <Link href="/" className="text-2xl font-bold text-white">
-                    Phoenix<span className="text-blue-400">.</span>
-                </Link>
-
-                {/* <div className="hidden md:flex items-center gap-8 text-white">
-                    {renderMenu()}
-                </div> */}
-                <div className="hidden md:flex items-center gap-8 text-white">
-                    <Link href="/" className="text-sm font-semibold">
-                        Home
+                {/* Logo + Menu */}
+                <div className="flex items-center gap-10">
+                    <Link href="/" className="text-2xl font-bold text-white">
+                        Phoenix<span className="text-blue-400">.</span>
                     </Link>
-                    {renderMenu()}
+                    <div className="hidden md:flex items-center gap-8 text-white">
+                        <Link href="/" className="text-sm font-semibold">
+                            Home
+                        </Link>
+                        {renderMenu()}
+                    </div>
                 </div>
 
-                <div className="hidden md:flex items-center gap-5 text-white">
+
+                {/* User Section */}
+                <div className="hidden md:flex items-center gap-8 text-white">
+
                     {user ? (
                         <>
-                            {/* <Link href="/profile" className="text-sm font-semibold">
-                                Hi {user.name}
-                            </Link> */}
                             <Link href="/profile" className="text-sm font-semibold">
                                 Hi {user.name}
                             </Link>
-                            <button onClick={logout} className="text-sm font-semibold">
+                            <button
+                                onClick={logout}
+                                className="text-sm font-semibold"
+                            >
                                 Logout
                             </button>
                         </>
                     ) : (
                         <>
-                            <Link href="/login">Login</Link>
-                            <Link href="/signup">Signup</Link>
+                            <Link href="/login" className="text-sm font-semibold">
+                                Login
+                            </Link>
+
+                            <Link href="/signup" className="text-sm font-semibold">
+                                Signup
+                            </Link>
                         </>
                     )}
+
                 </div>
+
             </nav>
         </header>
     );

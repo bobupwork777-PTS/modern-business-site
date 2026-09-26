@@ -55,12 +55,12 @@ type AIReport = { relevant: boolean; proposal?: string; reason?: string; error?:
 type PageInfo = { endCursor: string | null; hasNextPage: boolean };
 type PaymentFilter = "all" | "verified" | "unverified";
 type AddOptionType = "country" | "skill";
-type SortColumn = "status" | "country" | "feedback" | "applicants" | "verified" | "published";
+type SortColumn = "status" | "elapsed" | "country" | "feedback" | "applicants" | "proposals" | "verified" | "published";
 type SortDirection = "desc" | "asc";
 
 const PAGE_SIZE = 50;
 const applicantOptions = [
-    { value: "all", label: "All applicants" },
+    { value: "all", label: "Any applicants" },
     { value: "0-4", label: "< 5" },
     { value: "5-9", label: "5 - 10" },
     { value: "10-14", label: "10 - 15" },
@@ -405,8 +405,7 @@ if (selectedCountries.length) {
                     .startsWith("<")
             ) {
 
-                console.error(
-                    "UPWORK JOB API RETURNED HTML:",
+                console.error("UPWORK JOB API RETURNED HTML:",
                     {
                         status:
                             response.status,
@@ -429,12 +428,7 @@ if (selectedCountries.length) {
             if (raw) {
 
                 try {
-
-                    data =
-                        JSON.parse(
-                            raw
-                        );
-
+                    data = JSON.parse( raw );
                 } catch {
 
                     console.error(
@@ -1169,9 +1163,25 @@ if (selectedCountries.length) {
             "Jobs"
         );
 
+      
+        const now = new Date();
+
+        const day = String(now.getDate()).padStart(2, "0");
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const year = now.getFullYear();
+
+        const hours = String(now.getHours()).padStart(2, "0");
+        const minutes = String(now.getMinutes()).padStart(2, "0");
+
+        const skillsName = selectedSkills.length
+            ? selectedSkills.join("-").toLowerCase()
+            : "all-skills";
+
+        const fileName = `${day}-${month}-${year}-${skillsName}-${hours}:${minutes}.xlsx`;
+
         XLSX.writeFile(
             workbook,
-            "upwork-jobs-export.xlsx"
+            fileName
         );
 
         setShowExportModal(false);
@@ -1191,6 +1201,12 @@ if (selectedCountries.length) {
                     case "status":
                         comparison = getStatusSortValue(a.job) - getStatusSortValue(b.job);
                         break;
+                    
+                    case "elapsed":
+                        comparison =
+                            new Date(a.job.publishedDateTime || 0).getTime() -
+                            new Date(b.job.publishedDateTime || 0).getTime();
+                        break;
 
                     case "country":
                         comparison = compareText(
@@ -1205,6 +1221,12 @@ if (selectedCountries.length) {
 
                     case "applicants":
                         comparison = (a.job.totalApplicants ?? 0) - (b.job.totalApplicants ?? 0);
+                        break;
+
+                    case "proposals":
+                        comparison =
+                            (a.job.totalApplicants ?? 0) -
+                            (b.job.totalApplicants ?? 0);
                         break;
 
                     case "verified":
@@ -1669,6 +1691,7 @@ if (selectedCountries.length) {
                                     {/* <col className="w-[8%]" /> */}
                                     <col className="w-[8%]" />
                                     <col className="w-[8%]" />
+                                    <col className="w-[5%]" />
                                     <col className="w-[3%]" />
                                     <col className="w-[3%]" />
                                     <col className="w-[8%]" />
@@ -1687,7 +1710,16 @@ if (selectedCountries.length) {
                                                 Status <span className="text-[10px]">{getSortIndicator("status")}</span>
                                             </button>
                                         </th>
-                                        <th className={thClass}>Elapsed</th>
+                                        {/* <th className={thClass}>Elapsed</th> */}
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("elapsed")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Elapsed <span className="text-[10px]">{getSortIndicator("elapsed")}</span>
+                                            </button>
+                                        </th>
                                         <th className={thClass}>Job Title</th>
                                         <th className={thClass}>Description</th>
                                         <th className={thClass}>URL</th>
@@ -1712,6 +1744,18 @@ if (selectedCountries.length) {
                                             </button>
                                         </th>
                                         <th className={thClass}>Activity</th>
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("proposals")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Proposals 
+                                                <span className="text-[10px]">
+                                                    {getSortIndicator("proposals")}
+                                                </span>
+                                            </button>
+                                        </th>
                                         <th className={thClass}>
                                             <button
                                                 type="button"
@@ -1855,8 +1899,9 @@ if (selectedCountries.length) {
                                                         </div>
                                                     </td>
 
-                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.client?.totalFeedback ?? 0}</td>
+                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{getProposalRange(job.totalApplicants)}</td>
 
+                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.client?.totalFeedback ?? 0}</td>
                                                     <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.totalApplicants ?? 0}</td>
 
                                                     <td className="px-1.5 py-2 align-top">
