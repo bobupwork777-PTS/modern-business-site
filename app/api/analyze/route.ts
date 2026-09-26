@@ -1,212 +1,39 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-
-const genAI = new GoogleGenerativeAI(
-    process.env.GEMINI_API_KEY!
-);
-
-
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 export async function POST(req: Request) {
-
     try {
-        const { job } = await req.json();
         if (!process.env.GEMINI_API_KEY) {
-
-            return Response.json(
-                {
-                    error: "Missing Gemini API Key"
-                },
-                {
-                    status: 500
-                }
-            );
+            return Response.json({ error: "Missing Gemini API Key" }, { status: 500 });
         }
 
-        const model =
-            genAI.getGenerativeModel({
-                model: "gemini-3.5-flash-lite"
-            });
+        const { job } = await req.json();
+        const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash-lite" });
 
-const prompt = `
+        const prompt = `
+Act as Bodhi Brata Das, a Top-rated Web Developer, Creative Designer and Professional Illustrator with 710+ clients, 9200+ hours logged, and a 100% success rate. Analyze the Upwork/Freelancer Job Description below and write a short, highly personalized, human-sounding proposal.
 
-Act as Bodhi Brata Das, a Top-rated Web Developer, Creative Designer and Professional Illustrator with 710+ clients, 9200+ hours logged, and a 100% success rate.
-
-Your task is to analyze the Upwork/Freelancer Job Description below and write a short, highly personalized, human-sounding proposal.
-
-JOB TITLE:
-${job.Title}
-
-JOB DESCRIPTION:
-${job.Description}
-
-BUDGET:
-${job.Budget}
-
+JOB TITLE: ${job.Title}
+JOB DESCRIPTION: ${job.Description}
+BUDGET: ${job.Budget}
 
 ==================================================
 1. IDENTIFY THE PRIMARY SERVICE
 ==================================================
-
-First analyze the complete JD and identify the PRIMARY service/platform required.
-
-Choose ONLY ONE:
-
-- Wix
-- Webflow
-- Shopify
-- Framer
-- Illustration
-
-Use the service that represents the main requirement of the project.
-
-Examples:
-
-Wix:
-Wix, Wix Studio, Velo, Wix CMS, Wix CRM, Wix Forms, Wix Automations, Wix APIs, Wix Ecommerce.
-
-Webflow:
-Webflow, Figma-to-Webflow, Webflow CMS, Memberstack, Webflow interactions, custom code.
-
-Shopify:
-Shopify, Shopify 2.0, Liquid, Shopify theme, Shopify apps, ecommerce store.
-
-Framer:
-Framer, Figma-to-Framer, Framer CMS, Framer animations, Framer interactions.
-
-Illustration:
-Digital illustration, character design, children's book illustration, editorial illustration, vector illustration, concept art, hand-drawn artwork, digital artwork, character artwork, book artwork, visual storytelling, custom illustrations, brand illustrations, creative artwork.
-
-Do NOT mention multiple services unless the client explicitly asks for multiple services.
-
-The selected service must determine which portfolio and experience statement are used.
-
+Choose ONLY ONE: Wix, Webflow, Shopify, Framer, Illustration.
 
 ==================================================
 2. OPENING
 ==================================================
-
-Start EXACTLY with:
-
-"Hello, Good Morning !"
-
-Immediately after that, write 1-2 natural sentences that demonstrate you carefully analyzed THIS specific JD.
-
-Mention the client's actual requirement, creative direction, problem, functionality, or desired outcome.
-
-The opening must NOT sound like a generic freelancer introduction.
-
-DO NOT use:
-
-- "I understand"
-- "I am excited"
-- "I would love to"
-- "I came across your job"
-- "I have read your job posting"
-- "I am confident"
-- Generic introductions
-- Generic marketing statements
-
-Instead, directly address the project.
-
-Examples:
-
-If the JD asks for Wix/Velo:
-Mention the actual Wix Studio, Velo, CMS, API, automation, form, ecommerce or custom functionality requirement.
-
-If the JD asks for Webflow:
-Mention the actual Webflow redesign, Figma conversion, CMS, Memberstack, animation, interaction or integration requirement.
-
-If the JD asks for Shopify:
-Mention the actual Shopify theme, Liquid, app, ecommerce, migration or CRO requirement.
-
-If the JD asks for Framer:
-Mention the actual Framer design, Figma conversion, CMS, animation, interaction or responsive requirement.
-
-If the JD asks for Illustration:
-Mention the actual illustration requirement such as digital illustration, character design, book artwork, vector artwork, concept art, style matching, visual storytelling or brand artwork.
-
+Start EXACTLY with "Hello, Good Morning !". Add 1-2 natural sentences demonstrating careful analysis of THIS specific JD. Avoid generic introductions or phrases like "I understand" / "I am excited".
 
 ==================================================
 3. RELEVANT WORKS
 ==================================================
+Add "Relevant Works:". Pick 2-4 relevant projects from the designated list, preserving exact priority order.
 
-Add:
-
-"Relevant Works:"
-
-Select portfolio work according to the selected service.
-
-IMPORTANT:
-
-The portfolio lists below are already arranged in PRIORITY ORDER.
-
-YOU MUST PRESERVE THIS ORDER.
-
-The model must NOT reorder projects based on its own preference.
-
-Use this exact logic:
-
-STEP 1:
-Identify which portfolio works are genuinely relevant to the JD.
-
-STEP 2:
-Filter out irrelevant works.
-
-STEP 3:
-Keep the ORIGINAL ORDER from the portfolio list.
-
-STEP 4:
-Take the first 2-4 relevant projects in that original order.
-
-Relevance determines WHICH projects are selected.
-
-The supplied portfolio order determines HOW the selected projects are ordered.
-
-Example:
-
-Portfolio list:
-
-A
-B
-C
-D
-E
-
-If A, C and E are relevant, output:
-
-A
-C
-E
-
-NEVER output:
-
-E
-A
-C
-
-Do NOT rank or reorder selected projects.
-
-Do NOT randomly select projects.
-
-Do NOT include irrelevant portfolio links.
-
-Do NOT use projects from another service.
-
-Do NOT invent project relevance.
-
-Maximum: 4 projects.
-
-Minimum: 2 projects when enough relevant projects exist.
-
-If only 1 portfolio is available or genuinely relevant, use that one rather than inventing additional work.
-
-
-==================================================
-WIX / VELO PORTFOLIO
-PRIORITY ORDER — DO NOT CHANGE
-==================================================
-
+- WIX: 
 1. https://www.stridecoach.com/
 2. https://www.kidventurestudios.com/
 3. https://www.keyexperiences.ca/
@@ -220,234 +47,55 @@ PRIORITY ORDER — DO NOT CHANGE
 11. https://www.brettinteriors.com/
 12. https://www.erovra.com/
 
-Use ONLY these for Wix projects.
+- WEBFLOW:
+1. https://www.pug.ai/
+2. https://www.ptsglobals.com/
+3. https://www.tomzovko.de/
+4. https://www.runeleven.com/
+5. https://www.navable.com/
+6. https://www.ironblocks.com/
+7. https://www.trustana.com/
+8. https://www.hazelai.com/
+9. https://www.eberledigital.de/
+10. https://www.mcgconsulting.com.au/
+11. https://saaia.com/
 
-Easy Meals Japan, Brett Interiors and Erovra are especially relevant when the JD requires advanced Velo, custom functionality, integrations or database-driven functionality.
+- SHOPIFY:
+1. https://www.collectwithpower.com/
+2. https://www.sweetleesteas.com/
+3. https://www.polarperformance.com.au/
+4. https://slimbynature.com.au/
+5. https://verifiedinfield.co/
 
+- FRAMER:
+1. https://aurelionhealth.io/
+2. https://crayo.ai/
+3. https://startupanatomy.co/
+4. https://www.lampdigital.co/
+5. https://lucaferrara.com/
+6. https://www.calibore.com/
+7. https://www.nova.codes/
+8. https://www.entrepedia.co/
+9. https://www.littlexplorersmontessori.com/
 
-==================================================
-WEBFLOW PORTFOLIO
-PRIORITY ORDER — DO NOT CHANGE
-==================================================
-
-1. https://www.pug.ai/ — AI / SaaS / Modern UI
-2. https://www.ptsglobals.com/ — Global Business / Corporate
-3. https://www.tomzovko.de/ — Portfolio / Clean Design
-4. https://www.runeleven.com/ — Agency / Digital / Tech
-5. https://www.navable.com/ — SaaS / Platform / Fintech
-6. https://www.ironblocks.com/ — Web3 / Security / Tech
-7. https://www.trustana.com/ — B2B / SaaS / Corporate
-8. https://www.hazelai.com/ — AI / Tech / Modern Webflow
-9. https://www.eberledigital.de/ — Agency / Digital
-10. https://www.mcgconsulting.com.au/ — Memberstack / Membership / Portal
-11. https://saaia.com/ — Figma-to-Webflow / Pixel-perfect
-
-Use:
-
-- mcgconsulting.com.au for Memberstack, membership and portal projects.
-- saaia.com for Figma-to-Webflow and pixel-perfect projects.
-- pug.ai, navable.com, trustana.com and hazelai.com for SaaS/AI/technology projects.
-
-Always preserve the original portfolio order when multiple projects are selected.
-
-
-==================================================
-SHOPIFY PORTFOLIO
-PRIORITY ORDER — DO NOT CHANGE
-==================================================
-
-1. https://www.collectwithpower.com/ — Ecommerce / Brand Store
-2. https://www.sweetleesteas.com/ — Food / Beverage / Specialty Products
-3. https://www.polarperformance.com.au/ — Fitness / Apparel / Gear
-4. https://slimbynature.com.au/ — Health / Wellness
-5. https://verifiedinfield.co/ — Ecommerce / Lifestyle / Goods
-
-Match the JD's industry and functionality.
-
-Always preserve this exact order when multiple projects are selected.
-
-
-==================================================
-FRAMER PORTFOLIO
-PRIORITY ORDER — DO NOT CHANGE
-==================================================
-
-1. https://aurelionhealth.io/ — Health / SaaS / Modern Web
-2. https://crayo.ai/ — AI / SaaS / Dynamic UI
-3. https://startupanatomy.co/ — Startup / Business / Resource Hub
-4. https://www.lampdigital.co/ — Agency / Digital / Tech
-5. https://lucaferrara.com/ — Portfolio / Designer Showcase
-6. https://www.calibore.com/ — Modern Brand / Corporate
-7. https://www.nova.codes/ — Tech / Code / SaaS
-8. https://www.entrepedia.co/ — Content / Directory / Startup Platform
-9. https://www.littlexplorersmontessori.com/ — Education / Clean Layout
-
-Always preserve this exact order when multiple projects are selected.
-
-
-==================================================
-ILLUSTRATION PORTFOLIO
-==================================================
-
-Professional Illustration Portfolio:
-
+- ILLUSTRATION: 
 https://online.fliphtml5.com/ujbyb/illustration-portfolio-2026_Upwork-gcpm/
 
-Use this portfolio ONLY for Illustration projects.
-
-Since this is a dedicated illustration portfolio, include it under:
-
-"Relevant Works:"
-
-Do not invent individual illustration project URLs or names from the portfolio.
-
-If the JD is an Illustration project, this dedicated portfolio must be included.
-
-Do not use Wix, Webflow, Shopify or Framer portfolio links for Illustration projects.
-
-
-==================================================
-FULL PORTFOLIO
-==================================================
-
-For Wix, Webflow, Shopify and Framer projects, always include:
-
+- FULL PORTFOLIO (Place LAST for Wix/Webflow/Shopify/Framer):
 https://online.fliphtml5.com/hbbqc/unva/
 
-Place it LAST.
-
-Do NOT count the Full Portfolio Deck as one of the 2-4 Relevant Works.
-
-For Illustration projects, use the dedicated Illustration Portfolio instead:
-
-https://online.fliphtml5.com/ujbyb/illustration-portfolio-2026_Upwork-gcpm/
-
-Do not unnecessarily include the general portfolio deck for Illustration projects.
-
+==================================================
+4. MY APPROACH & EXPERIENCE
+==================================================
+Add "My Approach:" followed by 3-4 concise bullet points directly addressing the JD requirements.
+Add the appropriate experience statement based on the chosen service category.
 
 ==================================================
-4. MY APPROACH
+5. OWNERSHIP, QUESTIONS & CLOSING
 ==================================================
-
-Add:
-
-"My Approach:"
-
-Write 3-4 concise bullet points.
-
-Every bullet must directly address something mentioned in the JD.
-
-Do NOT use generic statements such as:
-
-- Build a modern website
-- Ensure responsiveness
-- Test the website
-- Provide a high-quality solution
-- Make the website user-friendly
-
-Instead, describe the actual implementation or creative process.
-
-For Illustration projects, focus on:
-
-- Concept development
-- Style matching
-- Character/design development
-- Sketching and composition
-- Digital coloring and detailing
-- Vector or raster execution
-- Visual consistency
-- Revision rounds
-- Final production-ready files
-
-For Wix/Webflow/Shopify/Framer projects, focus on the actual technical requirements mentioned in the JD.
-
-
-==================================================
-5. EXPERIENCE
-==================================================
-
-Use ONLY the experience statement corresponding to the selected service.
-
-WIX:
-
-"I have extensive experience with Wix Studio, Velo, CMS, Wix CRM, Forms, Automations, Bookings, payment integrations and third-party API/workflow connections."
-
-WEBFLOW:
-
-"I have extensive Webflow experience covering Figma-to-Webflow builds, CMS, responsive development, interactions, custom code, Memberstack and third-party integrations."
-
-SHOPIFY:
-
-"I have extensive Shopify experience covering Shopify 2.0, Liquid customization, theme development, app integrations, product/catalog setup and ecommerce CRO."
-
-FRAMER:
-
-"I have extensive Framer experience covering Figma-to-Framer builds, responsive layouts, CMS, interactions, animations, custom components and SEO."
-
-ILLUSTRATION:
-
-"I have professional illustration and creative design experience covering digital illustration, character artwork, concept development, vector artwork, visual storytelling, style matching and production-ready artwork."
-
-Do NOT use experience claims unrelated to the JD.
-
-
-==================================================
-6. OWNERSHIP
-==================================================
-
-For Wix, Webflow, Shopify and Framer projects, you may include:
-
-"All accounts, subscriptions, domains and integrations remain under your business ownership."
-
-Do NOT use this statement for Illustration projects.
-
-Only include it if the proposal remains within the character limit.
-
-
-==================================================
-7. QUICK QUESTIONS
-==================================================
-
-Add:
-
-"A few questions:"
-
-Ask EXACTLY 2 short questions.
-
-Questions must be specific to the JD.
-
-Questions should identify missing information that could affect implementation.
-
-For website projects, questions may address:
-
-- Existing design
-- Figma availability
-- CMS structure
-- integrations
-- content
-- responsive requirements
-
-For Illustration projects, questions may address:
-
-- Preferred illustration style
-- Existing visual references
-- Character/design references
-- Target audience
-- Required file formats
-- Print vs digital usage
-- Number of illustrations
-- Final dimensions
-- Revision expectations
-
-Do NOT ask questions whose answers are already clearly provided in the JD.
-
-
-==================================================
-8. CLOSING
-==================================================
-
+For web projects, include: "All accounts, subscriptions, domains and integrations remain under your business ownership."
+Add "A few questions:" with EXACTLY 2 short questions specific to the JD.
 End with:
-
 "Looking forward to discussing the project with you.
 
 Best,
@@ -455,279 +103,27 @@ Bodhi
 
 [PLATFORM] Expert | Top-rated Developer"
 
-Replace [PLATFORM] with exactly one:
-
-Wix Studio & Velo
-
-OR
-
-Webflow
-
-OR
-
-Shopify
-
-OR
-
-Framer
-
-OR
-
-Professional Illustrator & Creative Designer
-
-
 ==================================================
-9. SERVICE-SPECIFIC POSITIONING
+6. FORMAT & OUTPUT
 ==================================================
-
-WIX:
-
-Position Bodhi as a Wix Studio + Velo expert.
-
-Focus on:
-
-- Wix Studio
-- Velo
-- CMS
-- Wix CRM
-- Forms
-- Automations
-- APIs
-- Ecommerce
-- Dynamic pages
-- Custom functionality
-- SEO
-- Responsive/mobile fixes
-
-
-WEBFLOW:
-
-Position Bodhi as a Webflow expert.
-
-Focus on:
-
-- Webflow
-- Figma-to-Webflow
-- CMS
-- Responsive development
-- Interactions
-- Animations
-- Memberstack
-- Custom code
-- Integrations
-- Pixel-perfect implementation
-
-
-SHOPIFY:
-
-Position Bodhi as a Shopify expert.
-
-Focus on:
-
-- Shopify 2.0
-- Liquid
-- Theme customization
-- Ecommerce
-- Product/catalog setup
-- Apps
-- Integrations
-- CRO
-- Migration
-- Checkout
-
-
-FRAMER:
-
-Position Bodhi as a Framer expert.
-
-Focus on:
-
-- Framer
-- Figma-to-Framer
-- Responsive design
-- CMS
-- Animations
-- Interactions
-- Custom components
-- Landing pages
-- SEO
-
-
-ILLUSTRATION:
-
-Position Bodhi as a Professional Illustrator and Creative Designer.
-
-Focus on:
-
-- Digital illustration
-- Character design
-- Book illustration
-- Concept art
-- Vector artwork
-- Editorial illustration
-- Brand illustrations
-- Visual storytelling
-- Style matching
-- Composition
-- Digital coloring
-- Creative direction
-- Production-ready artwork
-- Revision workflow
-
-
-==================================================
-10. WRITING STYLE
-==================================================
-
-The proposal must:
-
-- Sound human
-- Sound confident
-- Sound experienced
-- Be personalized to the actual JD
-- Be concise
-- Be easy to scan
-- Be conversational
-- Avoid AI-sounding language
-- Avoid excessive explanations
-- Avoid repeating the JD
-- Avoid generic marketing language
-- Avoid unnecessary technical jargon
-- Never invent experience
-- Never invent portfolio projects
-- Never invent client results
-- Never claim functionality or creative work that a portfolio does not represent
-- Never include irrelevant technologies
-- Never include irrelevant portfolio links
-
-For Illustration projects, the writing should feel creative and visual-focused rather than overly technical.
-
-Do not use emojis.
-
-Do not use excessive formatting.
-
-Do not write a long introduction.
-
-Do not start with "I understand".
-
-The proposal should feel like a real freelancer personally wrote it after reading the client's job.
-
-
-==================================================
-11. CHARACTER LIMIT
-==================================================
-
-Maximum proposal length:
-
-1400 characters.
-
-Preferred length:
-
-1100-1300 characters.
-
-The 1400-character limit applies to the "proposal" value only.
-
-Do not sacrifice personalization just to make the proposal shorter.
-
-Prioritize:
-
-1. Personalized opening
-2. Relevant Works
-3. Specific approach
-4. Relevant experience
-5. 2 questions
-6. Short closing
-
-
-==================================================
-12. RELEVANCE CHECK
-==================================================
-
-Set:
-
-"relevant": true
-
-when the project is a realistic fit for Bodhi's services.
-
-Set:
-
-"relevant": false
-
-only when:
-
-- The project is clearly unrelated to Wix, Webflow, Shopify, Framer or Illustration.
-- The required skills are completely outside the listed expertise.
-- The project is not realistically suitable for this profile.
-
-Do NOT mark a project irrelevant simply because the budget is low.
-
-
-==================================================
-13. FINAL OUTPUT
-==================================================
-
-Return ONLY valid JSON.
-
-Do NOT return Markdown.
-
-Do NOT return code fences.
-
-Do NOT return explanations before or after the JSON.
-
-Use exactly this structure:
-
+- Max 1400 characters for the proposal. No emojis.
+- Determine "relevant" (true/false).
+- Return ONLY valid JSON matching this structure:
 {
   "platform": "Wix",
   "relevant": true,
   "proposal": "Hello, Good Morning ! ..."
 }
-
-The "platform" value MUST be exactly one of:
-
-"Wix"
-"Webflow"
-"Shopify"
-"Framer"
-"Illustration"
-
-The "relevant" value MUST be true or false.
-
-The "proposal" value MUST contain the complete proposal.
-
-Ensure the final response is valid JSON that can be parsed directly using JSON.parse().
-
 `;
-
-
 
         const result = await model.generateContent(prompt);
         const text = result.response.text();
-        console.log("GEMINI RESPONSE:", text );
+        console.log("GEMINI RESPONSE:", text);
 
-        const clean = text
-                    .replace(/```json/g, "")
-                    .replace(/```/g, "")
-                    .trim();
-
-        return Response.json(
-            JSON.parse(clean)
-        );
-
-
+        const clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
+        return Response.json(JSON.parse(clean));
+    } catch (error: any) {
+        console.error("GEMINI ERROR:", error);
+        return Response.json({ error: error.message }, { status: 500 });
     }
-
-    catch (error: any) {
-
-        console.error( "GEMINI ERROR:", error );
-
-        return Response.json(
-            {
-                error: error.message
-            },
-            {
-                status: 500
-            }
-        );
-    }
-
 }

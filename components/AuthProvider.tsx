@@ -1,24 +1,37 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import {
+    createContext,
+    useContext,
+    useEffect,
+    useState
+} from "react";
 
 
 type User = {
+
+    _id: string;
     name: string;
+    email?: string;
     role: string;
+
 };
 
+
+
 type AuthContextType = {
+
     user: User | null;
     loading: boolean;
     setUser: (user: User | null) => void;
+
 };
 
-const AuthContext = createContext<AuthContextType>({
-    user: null,
-    loading: true,
-    setUser: () => {}
-});
+
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+
 
 export function AuthProvider({
     children
@@ -26,53 +39,144 @@ export function AuthProvider({
     children: React.ReactNode
 }) {
 
-    const [user, setUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        const storedUser = localStorage.getItem("user");
-        if(storedUser){
-            const userData = JSON.parse(storedUser);
-            setUser({
-                name: userData.name,
-                role: userData.role
-            });
-            // console.log("User:", userData);
-        }
-        else{
-            // fallback from cookie
-            const cookies = document.cookie
-                .split("; ")
-                .reduce((acc:any, cookie)=>{
-                    const [key,value] = cookie.split("=");
-                    acc[key] = value;
-                    return acc;
-                },{});
+    const [user,setUser] = useState<User | null>(null);
 
-            if(cookies.role){
-                setUser({
-                    name:"",
-                    role:cookies.role
-                });
+    const [loading,setLoading] = useState(true);
+
+
+
+    const formatUser = (data:any):User => {
+
+        return {
+
+            _id:data._id || data.id,
+
+            name:data.name,
+
+            email:data.email,
+
+            role:data.role
+
+        };
+
+    };
+
+
+
+
+    useEffect(()=>{
+
+
+        const loadUser = ()=>{
+
+
+            try{
+
+
+                // Check local storage first
+
+                const storedUser = localStorage.getItem("user");
+                
+                console.log("LOCAL STORAGE USER:",storedUser);
+
+                if(storedUser){
+                    const userData = JSON.parse(storedUser);
+                    setUser(formatUser(userData));
+                }
+                else{
+
+
+                    // Check cookie
+                    const cookies = document.cookie
+                    .split("; ")
+                    .reduce((acc:any,item)=>{
+
+                        const [key,value] = item.split("=");
+                        acc[key]=value;
+                        return acc;
+
+                    },{});
+
+
+
+                    if(cookies.user){
+                        const cookieUser = JSON.parse(
+                            decodeURIComponent(cookies.user)
+                        );
+                        setUser(
+                            formatUser(cookieUser)
+                        );
+
+                    }
+
+                }
+
             }
-        }
-        setLoading(false);
+            catch(error){
+
+                console.log("Auth Error:",error);
+                localStorage.removeItem("user");
+                setUser(null);
+
+            }
+            finally{
+                setLoading(false);
+            }
+
+
+        };
+        loadUser();
+
+
     },[]);
 
+
+
+
     return (
+
         <AuthContext.Provider
+
             value={{
+
                 user,
+
                 loading,
+
                 setUser
+
             }}
+
         >
+
             {children}
+
         </AuthContext.Provider>
+
     );
+
 }
 
-export function useAuth(){
-    return useContext(AuthContext);
+
+
+
+export function useAuth():AuthContextType {
+
+
+    const context = useContext(AuthContext);
+
+    if(!context){
+
+        throw new Error(
+            "useAuth must be used inside AuthProvider"
+        );
+
+    }
+
+
+
+    return context;
+
 
 }
