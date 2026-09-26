@@ -79,7 +79,7 @@ export default function PromptPage() {
             <Navbar />
             <main className="flex-1 pt-24 px-5 pb-10">
                 <div className="max-w-[1600px] mx-auto grid xl:grid-cols-[420px_1fr] gap-5">
-                    
+
                     {/* PROMPT EDITOR */}
                     <div className="bg-white rounded-xl border shadow-sm p-6 min-h-[650px]">
                         <div className="flex justify-between items-center mb-6">
@@ -94,17 +94,43 @@ export default function PromptPage() {
                         </div>
 
                         <label className="text-sm text-gray-600">Skill</label>
+               
                         <select
                             value={selectedSkill}
-                            onChange={(e) => setSelectedSkill(e.target.value)}
+                            onChange={(e) => {
+
+                                const skillId = e.target.value;
+
+                                setSelectedSkill(skillId);
+
+                                // find existing prompt for selected skill
+                                const existingPrompt = prompts.find(
+                                    (item) => item.skillId === skillId
+                                );
+
+                                if (existingPrompt) {
+                                    setPrompt(existingPrompt.prompt);
+                                    setEditId(existingPrompt._id);
+                                }
+                                else {
+                                    setPrompt("");
+                                    setEditId("");
+                                }
+
+                            }}
                             className="w-full mt-2 mb-5 border rounded-lg px-3 py-3 text-sm"
                         >
                             <option value="">Select Skill</option>
+
                             {skills.map((skill) => (
-                                <option key={skill.name} value={skill.name}>
+                                <option
+                                    key={skill.name}
+                                    value={skill.name}
+                                >
                                     {skill.name}
                                 </option>
                             ))}
+
                         </select>
 
                         <label className="text-sm text-gray-600">Prompt</label>
@@ -161,8 +187,16 @@ export default function PromptPage() {
                                                 <div className="font-medium text-blue-600">{item.skillName}</div>
                                                 <div className="text-xs text-gray-400 mt-1">{item.skillId}</div>
                                             </td>
-                                            <td className="px-5 py-4 max-w-[350px] truncate text-gray-600">
-                                                {item.prompt}
+                                            <td className="px-5 py-4 max-w-[400px]">
+                                                <div className="
+                                                    max-h-[100px]
+                                                    overflow-y-auto
+                                                    text-gray-600
+                                                    text-sm
+                                                    pr-2
+                                                ">
+                                                    {item.prompt}
+                                                </div>
                                             </td>
                                             <td className="px-5 py-4">
                                                 <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs">
@@ -175,15 +209,31 @@ export default function PromptPage() {
                                             <td className="px-5 py-4 text-gray-500">
                                                 {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "-"}
                                             </td>
+                                            
                                             <td className="px-5 py-4">
                                                 <div className="flex justify-center gap-3">
-                                                    <button type="button" onClick={() => editPrompt(item)} className="text-gray-400 hover:text-blue-600 transition" title="View">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => editPrompt(item)}
+                                                        className="text-blue-500 hover:text-blue-700 transition"
+                                                        title="View"
+                                                    >
                                                         <Eye size={16} />
                                                     </button>
-                                                    <button type="button" onClick={() => editPrompt(item)} className="text-gray-400 hover:text-green-600 transition" title="Edit">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => editPrompt(item)}
+                                                        className="text-green-500 hover:text-green-700 transition"
+                                                        title="Edit"
+                                                    >
                                                         <Pencil size={16} />
                                                     </button>
-                                                    <button type="button" onClick={() => deletePrompt(item._id)} className="text-gray-400 hover:text-red-600 transition" title="Delete">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => deletePrompt(item._id)}
+                                                        className="text-red-500 hover:text-red-700 transition"
+                                                        title="Delete"
+                                                    >
                                                         <Trash2 size={16} />
                                                     </button>
                                                 </div>
