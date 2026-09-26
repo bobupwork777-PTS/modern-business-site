@@ -39,7 +39,11 @@ export default function Navbar() {
 
     const groupedPages = pages.reduce((acc: any, page: any) => {
         if (!page?.group) return acc;
-        if (!acc[page.group]) acc[page.group] = [];
+        // Hide Main group
+        if (page.group === "Main") return acc;
+        if (!acc[page.group]) {
+            acc[page.group] = [];
+        }
         acc[page.group].push(page);
         return acc;
     }, {});
