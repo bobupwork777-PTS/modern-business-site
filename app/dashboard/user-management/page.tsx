@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { useRouter } from "next/navigation";
 
 
 export default function UserPage() {
 
+    const router = useRouter();
     const [users, setUsers] = useState<any[]>([]);
     const [pages, setPages] = useState<any[]>([]);
     const [permissions, setPermissions] = useState<any[]>([]);
@@ -24,20 +26,21 @@ export default function UserPage() {
 
         try {
 
-            const res = await fetch("/api/user-management", {
-                cache: "no-store"
-            });
-
+            const res = await fetch(
+                "/api/user-management",
+                {
+                    cache: "no-store"
+                }
+            );
 
             const data = await res.json();
-
 
             setUsers(data.users || []);
             setPages(data.pages || []);
             setPermissions(data.permissions || []);
 
-
-        } catch (error) {
+        }
+        catch (error) {
 
             console.log(error);
 
@@ -70,51 +73,42 @@ export default function UserPage() {
 
 
 
-
     const updatePermission = async (
         userId: string,
         pageId: string,
         access: boolean
     ) => {
 
-
         try {
 
+            await fetch(
+                "/api/user-management",
+                {
+                    method: "PUT",
 
-            await fetch("/api/user-management", {
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
 
-                method: "PUT",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
-
-                body: JSON.stringify({
-
-                    userId,
-                    pageId,
-                    access
-
-                })
-
-            });
+                    body: JSON.stringify({
+                        userId,
+                        pageId,
+                        access
+                    })
+                }
+            );
 
 
+            loadData();
 
-            await loadData();
-
-
-
-        } catch(error){
+        }
+        catch (error) {
 
             console.log(error);
 
         }
 
-
     };
-
 
 
 
@@ -128,151 +122,159 @@ export default function UserPage() {
 
             <main className="pt-24 px-5 pb-10">
 
-
                 <div className="bg-white rounded-xl overflow-auto">
 
 
-                    <h1 className="p-5 text-xl font-bold border-b">
-                        User Management
-                    </h1>
+                    <div className="flex justify-between items-center p-5 border-b ">
+
+                        <h1 className="text-xl font-bold">
+                            User Management
+                        </h1>
+
+                        <button
+                            onClick={() => router.push("/signup?admin=true")}
+                            className="
+                            bg-blue-600
+                            text-white
+                            px-4
+                            py-2
+                            rounded-lg
+                            text-sm
+                            font-semibold
+                            hover:bg-blue-700
+                            "
+                        >
+                            Create New User
+                        </button>
+
+
+                    </div>
+
+
 
 
                     {
-                    loading ?
+                        loading ?
 
-                    <div className="p-5">
-                        Loading...
-                    </div>
-
-                    :
-
-                    <table className="w-full">
+                            <div className="p-5">
+                                Loading...
+                            </div>
 
 
-                        <thead className="bg-gray-100">
-
-                            <tr>
-
-                                <th className="p-3 text-left">
-                                    User
-                                </th>
+                            :
 
 
-                                {
-                                pages.map(page => (
-
-                                    <th
-                                    key={page._id}
-                                    className="p-3"
-                                    >
-                                        {page.name}
-                                    </th>
-
-                                ))
-                                }
+                            <table className="w-full">
 
 
-                            </tr>
+                                <thead className="bg-gray-100">
 
-                        </thead>
+                                    <tr>
 
-
-
-                        <tbody>
-
-
-                        {
-                        users.map(user => (
-
-                            <tr
-                            key={user._id}
-                            className="border-b"
-                            >
+                                        <th className="p-3 text-left">
+                                            User
+                                        </th>
 
 
-                                <td className="p-3">
+                                        {
+                                            pages.map((page) => (
 
-                                    <div>
+                                                <th
+                                                    key={page._id}
+                                                    className="p-3"
+                                                >
+                                                    {page.name}
+                                                </th>
 
-                                        <p className="font-medium">
-                                            {user.name}
-                                        </p>
-
-                                        <p className="text-sm text-gray-500">
-                                            {user.email}
-                                        </p>
-
-                                    </div>
-
-                                </td>
-
-
-
-                                {
-                                pages.map(page => (
-
-                                    <td
-                                    key={page._id}
-                                    className="text-center"
-                                    >
-
-                                        <input
-
-                                        type="checkbox"
-
-
-                                        checked={
-                                            checkPermission(
-                                                user._id,
-                                                page._id
-                                            )
+                                            ))
                                         }
 
+                                    </tr>
 
-                                        onChange={(e)=>
-
-                                            updatePermission(
-                                                user._id,
-                                                page._id,
-                                                e.target.checked
-                                            )
-
-                                        }
-
-
-                                        />
-
-
-                                    </td>
-
-                                ))
-                                }
+                                </thead>
 
 
 
-                            </tr>
+                                <tbody>
 
 
-                        ))
-                        }
+                                    {
+                                        users.map((user) => (
+
+                                            <tr
+                                                key={user._id}
+                                                className="border-b"
+                                            >
 
 
-                        </tbody>
+                                                <td className="p-3">
+
+                                                    <p className="font-medium">
+                                                        {user.name}
+                                                    </p>
+
+                                                    <p className="text-sm text-gray-500">
+                                                        {user.email}
+                                                    </p>
+
+                                                </td>
 
 
-                    </table>
+
+                                                {
+                                                    pages.map((page) => (
+
+                                                        <td
+                                                            key={page._id}
+                                                            className="text-center"
+                                                        >
+
+                                                            <input
+                                                                type="checkbox"
+
+                                                                checked={
+                                                                    checkPermission(
+                                                                        user._id,
+                                                                        page._id
+                                                                    )
+                                                                }
+
+                                                                onChange={(e) =>
+                                                                    updatePermission(
+                                                                        user._id,
+                                                                        page._id,
+                                                                        e.target.checked
+                                                                    )
+                                                                }
+
+                                                            />
+
+                                                        </td>
+
+                                                    ))
+                                                }
+
+
+                                            </tr>
+
+                                        ))
+                                    }
+
+
+                                </tbody>
+
+
+                            </table>
 
                     }
 
 
                 </div>
 
-
             </main>
 
 
             <Footer />
-
 
         </div>
 
