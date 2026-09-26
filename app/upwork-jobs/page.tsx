@@ -989,45 +989,209 @@ if (selectedCountries.length) {
         return `https://www.upwork.com/jobs/${code}`;
     }
 
+    // async function analyzeJob(job: Job) {
+    //     setSelectedJob(job);
+    //     setShowModal(true);
+    //     setAnalyzing(true);
+    //     setAiReport(null);
+
+    //     const activity = [
+    //         `Proposals: ${getProposalRange(job.totalApplicants)}`,
+    //         `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
+    //         `Invites: ${job.activity?.invitesSent ?? 0}`,
+    //         `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`
+    //     ].join(", ");
+
+    //     const analysisJob = {
+    //         Title: job.title || "Untitled Job",
+    //         Description: job.description || "",
+    //         Budget: getBudget(job),
+    //         Status: getStatusText(job),
+    //         PublishedDate: formatDate(job.publishedDateTime),
+    //         Activity: activity,
+    //         URL: getJobUrl(job)
+    //     };
+
+    //     try {
+    //         const response = await fetch("/api/analyze", {
+    //             method: "POST",
+    //             headers: { "Content-Type": "application/json" },
+    //             body: JSON.stringify({ job: analysisJob })
+    //         });
+    //         const data = await response.json();
+    //         if (!response.ok) throw new Error(data.error || "AI analysis failed");
+    //         setAiReport(data);
+    //     } catch (err) {
+    //         console.error("Analyze error:", err);
+    //         setAiReport({ relevant: false, error: "Unable to analyze this opportunity. Please try again." });
+    //     } finally {
+    //         setAnalyzing(false);
+    //     }
+    // }
+
     async function analyzeJob(job: Job) {
-        setSelectedJob(job);
-        setShowModal(true);
-        setAnalyzing(true);
-        setAiReport(null);
 
-        const activity = [
-            `Proposals: ${getProposalRange(job.totalApplicants)}`,
-            `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
-            `Invites: ${job.activity?.invitesSent ?? 0}`,
-            `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`
-        ].join(", ");
+    setSelectedJob(job);
+    setShowModal(true);
+    setAnalyzing(true);
+    setAiReport(null);
 
-        const analysisJob = {
-            Title: job.title || "Untitled Job",
-            Description: job.description || "",
-            Budget: getBudget(job),
-            Status: getStatusText(job),
-            PublishedDate: formatDate(job.publishedDateTime),
-            Activity: activity,
-            URL: getJobUrl(job)
-        };
 
-        try {
-            const response = await fetch("/api/analyze", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ job: analysisJob })
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || "AI analysis failed");
-            setAiReport(data);
-        } catch (err) {
-            console.error("Analyze error:", err);
-            setAiReport({ relevant: false, error: "Unable to analyze this opportunity. Please try again." });
-        } finally {
-            setAnalyzing(false);
-        }
+    const activity = [
+        `Proposals: ${getProposalRange(job.totalApplicants)}`,
+        `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
+        `Invites: ${job.activity?.invitesSent ?? 0}`,
+        `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`
+    ].join(", ");
+
+
+
+    /*
+        Detect skill
+        You can improve this later using AI
+    */
+    let skill = "Wix";
+
+    const title =
+        (job.title || "").toLowerCase();
+
+    const description =
+        (job.description || "").toLowerCase();
+
+
+    if (
+        title.includes("webflow") ||
+        description.includes("webflow")
+    ) {
+        skill = "Webflow";
     }
+
+    else if (
+        title.includes("shopify") ||
+        description.includes("shopify")
+    ) {
+        skill = "Shopify";
+    }
+
+    else if (
+        title.includes("framer") ||
+        description.includes("framer")
+    ) {
+        skill = "Framer";
+    }
+
+    else if (
+        title.includes("illustration") ||
+        description.includes("illustration")
+    ) {
+        skill = "Illustration";
+    }
+
+
+
+    const analysisJob = {
+
+        Skill: skill,
+
+        Title:
+            job.title ||
+            "Untitled Job",
+
+        Description:
+            job.description ||
+            "",
+
+        Budget:
+            getBudget(job),
+
+        Status:
+            getStatusText(job),
+
+        PublishedDate:
+            formatDate(
+                job.publishedDateTime
+            ),
+
+        Activity:
+            activity,
+
+        URL:
+            getJobUrl(job)
+    };
+
+
+
+    try {
+
+
+        const response =
+            await fetch(
+                "/api/analyze",
+                {
+                    method:"POST",
+
+                    headers:{
+                        "Content-Type":
+                        "application/json"
+                    },
+
+                    body:
+                    JSON.stringify({
+                        job:analysisJob
+                    })
+                }
+            );
+
+
+
+        const data =
+            await response.json();
+
+
+
+        if(!response.ok){
+
+            throw new Error(
+                data.error ||
+                "AI analysis failed"
+            );
+
+        }
+
+
+
+        setAiReport(data);
+
+
+
+    }
+    catch(err){
+
+
+        console.error(
+            "Analyze error:",
+            err
+        );
+
+
+        setAiReport({
+
+            relevant:false,
+
+            error:
+            "Unable to analyze this opportunity. Please try again."
+
+        });
+
+
+    }
+    finally{
+
+        setAnalyzing(false);
+
+    }
+
+}
 
     function closeModal() {
         setShowModal(false);
@@ -1681,22 +1845,22 @@ if (selectedCountries.length) {
                         <div className="w-full overflow-hidden">
                             <table className="w-full table-fixed border-collapse text-[11px]"><style>{`td,th{overflow:hidden;text-overflow:ellipsis;} .break-cell{white-space:normal;word-break:break-word;}`}</style>
                                 <colgroup>
-                                    <col className="w-[6.5%]" />
+                                    <col className="w-[5%]" />
                                     <col className="w-[5%]" />
                                     <col className="w-[12%]" />
                                     <col className="w-[18%]" />
                                     <col className="w-[4%]" />
-                                    <col className="w-[6%]" />
-                                    <col className="w-[7%]" />
+                                    <col className="w-[5%]" />
+                                    <col className="w-[5%]" />
                                     {/* <col className="w-[8%]" /> */}
-                                    <col className="w-[8%]" />
-                                    <col className="w-[8%]" />
+                                    <col className="w-[4%]" />
+                                    <col className="w-[6%]" />
                                     <col className="w-[5%]" />
                                     <col className="w-[3%]" />
                                     <col className="w-[3%]" />
-                                    <col className="w-[8%]" />
+                                    <col className="w-[4%]" />
                                     <col className="w-[5%]" />
-                                    <col className="w-[7.5%]" />
+                                    <col className="w-[7%]" />
                                 </colgroup>
 
                                 <thead className="bg-[#F8FAFC]">
