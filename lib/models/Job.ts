@@ -1,27 +1,12 @@
-import mongoose from "mongoose";
+import { Schema, models, model } from "mongoose";
 
+const JobSchema = new Schema({
+    title: String,
+    description: String,
+    budget: String,
+    score: Number,
+    matchedSkills: { type: [String], default: [] },
+    aiReport: Object
+}, { timestamps: true });
 
-const JobSchema = new mongoose.Schema({
-
-    title:String,
-
-    description:String,
-
-    budget:String,
-
-    score:Number,
-
-    matchedSkills:{
-        type:[String],
-        default:[]
-    },
-
-    aiReport:Object
-
-},{
-    timestamps:true
-});
-
-
-export default mongoose.models.Job ||
-mongoose.model("Job",JobSchema);
+export default models.Job || model("Job", JobSchema);

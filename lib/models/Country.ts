@@ -1,35 +1,11 @@
-import mongoose, { Schema } from "mongoose";
+import { Schema, models, model } from "mongoose";
 
-const CountrySchema = new Schema(
-  {
-    name: {
-      type: String,
-      required: true,
-      trim: true
-    },
+const CountrySchema = new Schema({
+    name: { type: String, required: true, trim: true },
+    normalizedName: { type: String, required: true, trim: true, lowercase: true },
+    active: { type: Boolean, default: true }
+}, { timestamps: true, collection: "countries" });
 
-    normalizedName: {
-      type: String,
-      required: true,
-      trim: true,
-      lowercase: true
-    },
+CountrySchema.index({ normalizedName: 1 }, { unique: true });
 
-    active: {
-      type: Boolean,
-      default: true
-    }
-  },
-  {
-    timestamps: true,
-    collection: "countries"
-  }
-);
-
-CountrySchema.index(
-  { normalizedName: 1 },
-  { unique: true }
-);
-
-export default mongoose.models.Country ||
-  mongoose.model("Country", CountrySchema);
+export default models.Country || model("Country", CountrySchema);
