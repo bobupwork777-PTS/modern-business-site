@@ -18,7 +18,13 @@ const ownerId = (p: Raw) => String(p.owner_id ?? p.owner?.id ?? p.user_id ??
 const countryText = (v: unknown): string => typeof v === "string" ? v :
   record(v).name || record(v).country_name || record(v).code || "";
 const countryOf = (u: Raw) => countryText(u.country) || countryText(u.location?.country);
-type PublicClient = { country: string; city: string; memberSinceDateTime?: string };
+type PublicClient = {
+  country: string; city: string; memberSinceDateTime?: string;
+  feedbackRating?: number; reviewCount?: number; paymentVerified?: true;
+};
+type LocalClient = Partial<PublicClient> & {
+  invitesSent?: number; completedProjects?: number; contactedFreelancers?: string;
+};
 const publicClientCache = new Map<string, { value: PublicClient | null; expires: number }>();
 const decodeHtml = (s: string) => s.replace(/&(#\d+|#x[\da-f]+|amp|nbsp|quot|apos|lt|gt);/gi, (_, entity: string) => {
   const names: Record<string, string> = { amp: "&", nbsp: " ", quot: '"', apos: "'", lt: "<", gt: ">" };
@@ -44,7 +50,18 @@ function parsePublicClient(html: string): PublicClient | null {
   if (!country) return null;
   const since = section.find(x => /^Member since\s+/i.test(x));
   const parsedDate = since ? new Date(`${since.replace(/^Member since\s+/i, "")} UTC`) : null;
-  return { city: location ? parts[0] : "", country, ...(parsedDate && !isNaN(parsedDate.getTime()) ? { memberSinceDateTime: parsedDate.toISOString() } : {}) };
+  const locationIndex = section.indexOf(location || "");
+  const ratingText = locationIndex >= 0 ? section[locationIndex + 1] : undefined;
+  const reviewsText = locationIndex >= 0 ? section[locationIndex + 2] : undefined;
+  const hasRating = ratingText != null && /^(?:[0-4](?:\.\d+)?|5(?:\.0+)?)$/.test(ratingText);
+  const hasReviews = hasRating && reviewsText != null && /^\d+$/.test(reviewsText);
+  return {
+    city: location ? parts[0] : "", country,
+    ...(parsedDate && !isNaN(parsedDate.getTime()) ? { memberSinceDateTime: parsedDate.toISOString() } : {}),
+    ...(hasRating ? { feedbackRating: Number(ratingText) } : {}),
+    ...(hasReviews ? { reviewCount: Number(reviewsText) } : {}),
+    ...(section.some(x => /^Payment method verified$/i.test(x)) ? { paymentVerified: true as const } : {})
+  };
 }
 async function getPublicClient(project: Raw): Promise<PublicClient | null> {
   const id = String(project.id);
@@ -144,6 +161,28 @@ export async function GET(req: NextRequest) {
       }));
     }
 
+    // On localhost an optional, separately running Chrome service can read
+    // details visible to the signed-in user. This endpoint is never called by
+    // deployed builds, and no browser cookies are sent through this API.
+    const localClients = new Map<string, LocalClient>();
+    let localClientError: string | null = null;
+    if (process.env.NODE_ENV === "development" && projects.length) {
+      const urls = projects.map(p => p.seo_url ?
+        `https://www.freelancer.com/projects/${String(p.seo_url).replace(/^\/+/, "")}` :
+        `https://www.freelancer.com/projects/${p.id}`);
+      try {
+        const response = await fetch("http://127.0.0.1:43187/enrich", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ urls }), cache: "no-store", signal: AbortSignal.timeout(90000)
+        });
+        if (!response.ok) throw Error(`Local service returned ${response.status}`);
+        const body = await response.json();
+        body.results?.forEach((row: { url: string; client: LocalClient | null }) => {
+          if (row.client) localClients.set(row.url, row.client);
+        });
+      } catch (error) { localClientError = error instanceof Error ? error.message : String(error); }
+    }
+
     const aliases: Record<string, string> = {
       aus: "australia", can: "canada", deu: "germany", fra: "france",
       nz: "new zealand", nzl: "new zealand", sgp: "singapore",
@@ -163,8 +202,12 @@ export async function GET(req: NextRequest) {
       const id = ownerId(p);
       const user = { ...record(p.owner), ...record(users[id]) };
       const publicClient = publicClients.get(String(p.id));
-      const hasClient = Object.keys(user).length > 0 || Boolean(publicClient);
-      const country = countryOf(user) || publicClient?.country || "";
+      const projectUrl = p.seo_url ?
+        `https://www.freelancer.com/projects/${String(p.seo_url).replace(/^\/+/, "")}` :
+        `https://www.freelancer.com/projects/${p.id}`;
+      const localClient = localClients.get(projectUrl);
+      const hasClient = Object.keys(user).length > 0 || Boolean(publicClient) || Boolean(localClient);
+      const country = countryOf(user) || localClient?.country || publicClient?.country || "";
       const projectCountry = countryText(p.location?.country) || countryText(p.country);
       const verified = user.payment_verified ?? user.status?.payment_verified;
       const currency = p.currency?.code || "";
@@ -176,8 +219,7 @@ export async function GET(req: NextRequest) {
       return {
         id: String(p.id), title: p.title || "Untitled project",
         description: p.description || p.preview_description || "",
-        url: p.seo_url ? `https://www.freelancer.com/projects/${String(p.seo_url).replace(/^\//, "")}` :
-          `https://www.freelancer.com/projects/${p.id}`,
+        url: projectUrl,
         createdDateTime: iso(p.time_submitted),
         publishedDateTime: iso(p.time_submitted || p.time_updated),
         totalApplicants: number(p.bid_stats?.bid_count),
@@ -190,16 +232,22 @@ export async function GET(req: NextRequest) {
           ...user,
           companyRid: id,
           name: user.display_name || user.public_name || user.username || "",
-          location: { ...record(user.location), city: user.location?.city || publicClient?.city || "", country },
-          memberSinceDateTime: user.registration_date ? iso(user.registration_date) : publicClient?.memberSinceDateTime,
-          detailSource: Object.keys(user).length ? "api" : "public_project_page",
-          verificationStatus: verified == null ? "" : verified ? "verified" : "unverified",
+          location: { ...record(user.location), city: user.location?.city || localClient?.city || publicClient?.city || "", country },
+          memberSinceDateTime: user.registration_date ? iso(user.registration_date) : localClient?.memberSinceDateTime || publicClient?.memberSinceDateTime,
+          detailSource: Object.keys(user).length ? "api" : localClient ? "local_signed_in_page" : "public_project_page",
+          verificationStatus: localClient?.paymentVerified || publicClient?.paymentVerified || verified === true ? "verified" :
+            verified === false ? "unverified" : "",
           totalPostedJobs: user.employer_reputation?.project_stats?.all?.count,
-          totalFeedback: user.employer_reputation?.overall
+          totalFeedback: typeof user.employer_reputation?.overall === "number" ?
+            user.employer_reputation.overall : localClient?.feedbackRating ?? publicClient?.feedbackRating,
+          totalReviews: localClient?.reviewCount ?? publicClient?.reviewCount
         } : null,
         projectLocation: p.location || null,
         projectCountry,
-        activity: { lastClientActivity: iso(p.time_updated) },
+        activity: { lastClientActivity: iso(p.time_updated),
+          invitesSent: localClient?.invitesSent,
+          completedProjects: localClient?.completedProjects,
+          contactedFreelancers: localClient?.contactedFreelancers },
         freelancerSkills: Array.isArray(p.jobs) ? p.jobs.map((j: Raw) => j.name).filter(Boolean) : [],
         rawProject: p,
         rawClient: hasClient ? user : null
@@ -230,6 +278,12 @@ export async function GET(req: NextRequest) {
         missingCountry: projects.filter(p => !countryOf(users[ownerId(p)] || record(p.owner))).length,
         missingProjectCountry: projects.filter(p => !countryText(p.location?.country) && !countryText(p.country)).length,
         publicPageCountries: publicClients.size,
+        publicPageRatings: [...publicClients.values()].filter(c => c.feedbackRating != null).length,
+        publicPagePaymentVerified: [...publicClients.values()].filter(c => c.paymentVerified).length,
+        localClientDetails: localClients.size,
+        localClientEngagement: [...localClients.values()].filter(c => c.invitesSent != null || c.completedProjects != null).length,
+        localClientPaymentVerified: [...localClients.values()].filter(c => c.paymentVerified).length,
+        localClientError,
         detailError
       }
     });
