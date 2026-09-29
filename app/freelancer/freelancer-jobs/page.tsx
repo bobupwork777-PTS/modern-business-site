@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import * as XLSX from "xlsx";
@@ -1282,6 +1282,20 @@ export default function FreelancerJobsPage() {
         );
     }
 
+    const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+    const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const handleCopyUrl = async (url: string) => {
+        try {
+            await navigator.clipboard.writeText(url);
+            setCopiedUrl(url);
+            if (copyTimer.current) clearTimeout(copyTimer.current);
+            copyTimer.current = setTimeout(() => setCopiedUrl(null), 2000);
+        } catch (error) {
+            console.error("Could not copy job URL:", error);
+        }
+    };
+
     return (
         <div className="min-h-screen flex flex-col bg-[#0D163F]">
             <Navbar />
@@ -1329,7 +1343,7 @@ export default function FreelancerJobsPage() {
                                     disabled={activeFilterCount === 0}
                                     className="text-[11px] font-bold text-[#29B2FE] disabled:cursor-not-allowed disabled:opacity-40"
                                     style={{ WebkitTextStroke: "0.5px black" }}
-                                    >
+                                >
                                     Clear filters
                                 </button>
                             </div>
@@ -1805,11 +1819,22 @@ export default function FreelancerJobsPage() {
                                                         {job.description ? `${job.description.slice(0, 150)}${job.description.length > 150 ? "..." : ""}` : "-"}
                                                     </td>
 
+
                                                     <td className={cellClass}>
                                                         {jobUrl ? (
-                                                            <a href={jobUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-[11px] whitespace-nowrap">
-                                                                View Job
-                                                            </a>
+                                                            <div className="flex flex-col items-start gap-1 whitespace-nowrap text-[11px] font-medium">
+                                                                <a href={jobUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                                                    View Job
+                                                                </a>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleCopyUrl(jobUrl)}
+                                                                    className={copiedUrl === jobUrl ? "text-green-700" : "text-gray-600 hover:text-blue-600"}
+                                                                    title="Copy job URL"
+                                                                >
+                                                                    {copiedUrl === jobUrl ? "✓ Copied" : "Copy URL"}
+                                                                </button>
+                                                            </div>
                                                         ) : "-"}
                                                     </td>
 
