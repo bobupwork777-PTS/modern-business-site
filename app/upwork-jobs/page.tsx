@@ -289,14 +289,14 @@ export default function UpworkJobsPage() {
                         cursor
                 });
 
-if (selectedCountries.length) {
+            if (selectedCountries.length) {
 
-    params.set(
-        "countries",
-        selectedCountries.join(",")
-    );
+                params.set(
+                    "countries",
+                    selectedCountries.join(",")
+                );
 
-}
+            }
 
             const activeSkills =
                 selectedSkillsOverride ??
@@ -370,8 +370,8 @@ if (selectedCountries.length) {
             const response =
                 await fetch(`/api/upwork/jobs?${params.toString()}`,
                     {
-                        method:"GET",
-                        cache:"no-store",
+                        method: "GET",
+                        cache: "no-store",
                         headers: {
                             Accept:
                                 "application/json"
@@ -428,7 +428,7 @@ if (selectedCountries.length) {
             if (raw) {
 
                 try {
-                    data = JSON.parse( raw );
+                    data = JSON.parse(raw);
                 } catch {
 
                     console.error(
@@ -1031,167 +1031,167 @@ if (selectedCountries.length) {
 
     async function analyzeJob(job: Job) {
 
-    setSelectedJob(job);
-    setShowModal(true);
-    setAnalyzing(true);
-    setAiReport(null);
+        setSelectedJob(job);
+        setShowModal(true);
+        setAnalyzing(true);
+        setAiReport(null);
 
 
-    const activity = [
-        `Proposals: ${getProposalRange(job.totalApplicants)}`,
-        `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
-        `Invites: ${job.activity?.invitesSent ?? 0}`,
-        `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`
-    ].join(", ");
-
-
-
-    /*
-        Detect skill
-        You can improve this later using AI
-    */
-    let skill = "Wix";
-
-    const title =
-        (job.title || "").toLowerCase();
-
-    const description =
-        (job.description || "").toLowerCase();
-
-
-    if (
-        title.includes("webflow") ||
-        description.includes("webflow")
-    ) {
-        skill = "Webflow";
-    }
-
-    else if (
-        title.includes("shopify") ||
-        description.includes("shopify")
-    ) {
-        skill = "Shopify";
-    }
-
-    else if (
-        title.includes("framer") ||
-        description.includes("framer")
-    ) {
-        skill = "Framer";
-    }
-
-    else if (
-        title.includes("illustration") ||
-        description.includes("illustration")
-    ) {
-        skill = "Illustration";
-    }
+        const activity = [
+            `Proposals: ${getProposalRange(job.totalApplicants)}`,
+            `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
+            `Invites: ${job.activity?.invitesSent ?? 0}`,
+            `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`
+        ].join(", ");
 
 
 
-    const analysisJob = {
+        /*
+            Detect skill
+            You can improve this later using AI
+        */
+        let skill = "Wix";
 
-        Skill: skill,
+        const title =
+            (job.title || "").toLowerCase();
 
-        Title:
-            job.title ||
-            "Untitled Job",
-
-        Description:
-            job.description ||
-            "",
-
-        Budget:
-            getBudget(job),
-
-        Status:
-            getStatusText(job),
-
-        PublishedDate:
-            formatDate(
-                job.publishedDateTime
-            ),
-
-        Activity:
-            activity,
-
-        URL:
-            getJobUrl(job)
-    };
+        const description =
+            (job.description || "").toLowerCase();
 
 
+        if (
+            title.includes("webflow") ||
+            description.includes("webflow")
+        ) {
+            skill = "Webflow";
+        }
 
-    try {
+        else if (
+            title.includes("shopify") ||
+            description.includes("shopify")
+        ) {
+            skill = "Shopify";
+        }
 
+        else if (
+            title.includes("framer") ||
+            description.includes("framer")
+        ) {
+            skill = "Framer";
+        }
 
-        const response =
-            await fetch(
-                "/api/analyze",
-                {
-                    method:"POST",
-
-                    headers:{
-                        "Content-Type":
-                        "application/json"
-                    },
-
-                    body:
-                    JSON.stringify({
-                        job:analysisJob
-                    })
-                }
-            );
-
-
-
-        const data =
-            await response.json();
-
-
-
-        if(!response.ok){
-
-            throw new Error(
-                data.error ||
-                "AI analysis failed"
-            );
-
+        else if (
+            title.includes("illustration") ||
+            description.includes("illustration")
+        ) {
+            skill = "Illustration";
         }
 
 
 
-        setAiReport(data);
+        const analysisJob = {
+
+            Skill: skill,
+
+            Title:
+                job.title ||
+                "Untitled Job",
+
+            Description:
+                job.description ||
+                "",
+
+            Budget:
+                getBudget(job),
+
+            Status:
+                getStatusText(job),
+
+            PublishedDate:
+                formatDate(
+                    job.publishedDateTime
+                ),
+
+            Activity:
+                activity,
+
+            URL:
+                getJobUrl(job)
+        };
 
 
+
+        try {
+
+
+            const response =
+                await fetch(
+                    "/api/analyze",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body:
+                            JSON.stringify({
+                                job: analysisJob
+                            })
+                    }
+                );
+
+
+
+            const data =
+                await response.json();
+
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    data.error ||
+                    "AI analysis failed"
+                );
+
+            }
+
+
+
+            setAiReport(data);
+
+
+
+        }
+        catch (err) {
+
+
+            console.error(
+                "Analyze error:",
+                err
+            );
+
+
+            setAiReport({
+
+                relevant: false,
+
+                error:
+                    "Unable to analyze this opportunity. Please try again."
+
+            });
+
+
+        }
+        finally {
+
+            setAnalyzing(false);
+
+        }
 
     }
-    catch(err){
-
-
-        console.error(
-            "Analyze error:",
-            err
-        );
-
-
-        setAiReport({
-
-            relevant:false,
-
-            error:
-            "Unable to analyze this opportunity. Please try again."
-
-        });
-
-
-    }
-    finally{
-
-        setAnalyzing(false);
-
-    }
-
-}
 
     function closeModal() {
         setShowModal(false);
@@ -1327,7 +1327,7 @@ if (selectedCountries.length) {
             "Jobs"
         );
 
-      
+
         const now = new Date();
 
         const day = String(now.getDate()).padStart(2, "0");
@@ -1365,7 +1365,7 @@ if (selectedCountries.length) {
                     case "status":
                         comparison = getStatusSortValue(a.job) - getStatusSortValue(b.job);
                         break;
-                    
+
                     case "elapsed":
                         comparison =
                             new Date(a.job.publishedDateTime || 0).getTime() -
@@ -1464,15 +1464,18 @@ if (selectedCountries.length) {
             <main className="flex-1 bg-[#0D163F] px-2 md:px-3 lg:px-4 pt-20 pb-6">
                 <div className="max-w-[1900px] mx-auto">
                     <section className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3 mb-3">
+
                         <div>
-                            <div className="inline-flex items-center gap-1.5 text-blue-400 font-bold uppercase tracking-[1.5px] text-[12px] mb-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                                Upwork Job Monitoring
+                            <div className="mb-3 flex items-center gap-3 md:gap-4">
+                                <img src="https://cdn.simpleicons.org/upwork" alt="" width={80} height={80} className="h-14 w-14 shrink-0 md:h-20 md:w-20" />
+                                <span className="text-lg md:text-[30px] font-bold uppercase leading-tight tracking-[1px] md:tracking-[2px] text-[#6FDA44]">
+                                    Upwork Job Monitoring
+                                </span>
                             </div>
-                            <h1 className="text-2xl md:text-3xl lg:text-[32px] leading-tight font-semibold text-white">
-                                Find the right opportunities,<span className="text-blue-400"> faster.</span>
+                            <h1 className="text-xl md:text-2xl font-semibold leading-tight text-white">
+                                Find the right opportunities,<span className="text-[#6FDA44]"> faster.</span>
                             </h1>
-                            <p className="mt-1.5 text-gray-300 text-xs">
+                            <p className="mt-1.5 text-xs text-gray-300">
                                 Search, monitor and analyse Upwork opportunities directly from your Phoenix dashboard.
                             </p>
                         </div>
@@ -1499,7 +1502,8 @@ if (selectedCountries.length) {
                                     type="button"
                                     onClick={clearFilters}
                                     disabled={activeFilterCount === 0}
-                                    className="text-[11px] font-medium text-gray-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                                    className="text-[11px] font-bold text-[#6FDA44] disabled:cursor-not-allowed disabled:opacity-40"
+                                    style={{ WebkitTextStroke: "0.5px black" }}
                                 >
                                     Clear filters
                                 </button>
@@ -1914,7 +1918,7 @@ if (selectedCountries.length) {
                                                 onClick={() => handleColumnSort("proposals")}
                                                 className="inline-flex items-center gap-1 hover:text-blue-600"
                                             >
-                                                Proposals 
+                                                Proposals
                                                 <span className="text-[10px]">
                                                     {getSortIndicator("proposals")}
                                                 </span>

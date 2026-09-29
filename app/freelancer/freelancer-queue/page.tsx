@@ -64,13 +64,15 @@ export default function FreelancerQueuePage() {
     try {
       const res = await fetch("/api/analyze", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job: {
-          Skill: "Freelancer", Title: job.title, Description: job.description,
-          Budget: job.budget, Status: job.applied ? "Applied" : "New",
-          PublishedDate: formatDate(job.publishedDateTime),
-          Activity: `Bids: ${job.rawJob?.totalApplicants ?? "Unknown"}`,
-          URL: job.url, Country: job.country
-        } })
+        body: JSON.stringify({
+          job: {
+            Skill: "Freelancer", Title: job.title, Description: job.description,
+            Budget: job.budget, Status: job.applied ? "Applied" : "New",
+            PublishedDate: formatDate(job.publishedDateTime),
+            Activity: `Bids: ${job.rawJob?.totalApplicants ?? "Unknown"}`,
+            URL: job.url, Country: job.country
+          }
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI analysis failed");
@@ -84,9 +86,13 @@ export default function FreelancerQueuePage() {
     <Navbar />
     <main className="flex-1 pt-24 px-5 pb-10">
       <div className="max-w-[1900px] mx-auto bg-white rounded-xl overflow-hidden">
-        <div className="p-5 border-b">
-          <h1 className="text-xl font-bold">Latest Queue Jobs</h1>
-          <p className="text-sm text-gray-500">Showing {jobs.length} queued jobs</p>
+
+        <div className="flex items-center gap-4 border-b p-5">
+          <img src="https://cdn.simpleicons.org/freelancer/29B2FE" alt="" width={70} height={70} className="h-14 w-14 shrink-0 md:h-16 md:w-16" />
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-[#29B2FE] md:text-xl">Latest Queue Jobs</h1>
+            <p className="mt-1 text-sm text-gray-500">Showing {jobs.length} queued jobs</p>
+          </div>
         </div>
         {loading && <div className="p-5">Loading...</div>}
         {error && <div role="alert" className="m-5 bg-red-100 text-red-700 p-3 rounded">{error}</div>}

@@ -269,7 +269,7 @@ export default function FreelancerJobsPage() {
                         cursor
                 });
 
-            if (selectedCountries.length && !allCountriesSelected) {
+            if (selectedCountries.length) {
 
                 params.set(
                     "countries",
@@ -1181,9 +1181,9 @@ export default function FreelancerJobsPage() {
         setShowExportModal(false);
     }
 
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const from = total ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
-    const to = total && jobs.length ? from + jobs.length - 1 : 0;
+
+    const from = jobs.length ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
+    const to = jobs.length ? from + jobs.length - 1 : 0;
 
     const displayedJobs = jobs
         .map((job, index) => ({ job, index }))
@@ -1290,20 +1290,22 @@ export default function FreelancerJobsPage() {
                 <div className="max-w-[1900px] mx-auto">
                     <section className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3 mb-3">
                         <div>
-                            <div className="inline-flex items-center gap-1.5 text-blue-400 font-bold uppercase tracking-[1.5px] text-[12px] mb-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                                Freelancer Job Monitoring
+                            <div className="mb-3 flex items-center gap-3 md:gap-4">
+                                <img src="https://cdn.simpleicons.org/freelancer/29B2FE" alt="" width={80} height={80} className="h-14 w-14 shrink-0 md:h-20 md:w-20" />
+                                <span className="text-lg md:text-[30px] font-bold uppercase leading-tight tracking-[1px] md:tracking-[2px] text-[#29B2FE]">
+                                    Freelancer Job Monitoring
+                                </span>
                             </div>
-                            <h1 className="text-2xl md:text-3xl lg:text-[32px] leading-tight font-semibold text-white">
-                                Find the right opportunities,<span className="text-blue-400"> faster.</span>
+                            <h1 className="text-xl md:text-2xl font-semibold leading-tight text-white">
+                                Find the right opportunities,<span className="text-[#29B2FE]"> faster.</span>
                             </h1>
-                            <p className="mt-1.5 text-gray-300 text-xs">
+                            <p className="mt-1.5 text-xs text-gray-300">
                                 Search, monitor and analyse Freelancer opportunities directly from your Phoenix dashboard.
                             </p>
                         </div>
 
                         <div className="flex flex-wrap gap-1.5">
-                            <StatCard label="Total Results" value={total} />
+                            <StatCard label="Total Search Jobs" value={total} />
                             <StatCard label="Loaded" value={jobs.length} />
                         </div>
                     </section>
@@ -1312,6 +1314,7 @@ export default function FreelancerJobsPage() {
 
                         <div className="mt-3 border-t border-gray-200 pt-3">
                             <div className="mb-2 flex items-center justify-between gap-3">
+
                                 <div className="flex items-center gap-2">
                                     <h3 className="text-[12px] font-semibold text-gray-800">Job Filters</h3>
                                     {activeFilterCount > 0 && (
@@ -1324,8 +1327,9 @@ export default function FreelancerJobsPage() {
                                     type="button"
                                     onClick={clearFilters}
                                     disabled={activeFilterCount === 0}
-                                    className="text-[11px] font-medium text-gray-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
-                                >
+                                    className="text-[11px] font-bold text-[#29B2FE] disabled:cursor-not-allowed disabled:opacity-40"
+                                    style={{ WebkitTextStroke: "0.5px black" }}
+                                    >
                                     Clear filters
                                 </button>
                             </div>
@@ -1599,7 +1603,7 @@ export default function FreelancerJobsPage() {
                             <div>
                                 <h2 className="text-base font-semibold text-[#101828]">Latest Opportunities</h2>
                                 <p className="text-gray-400 text-[12px] mt-0.5">
-                                    {!hasSearched ? "Search jobs to view opportunities" : total > 0 ? `Showing ${from}-${to} of ${total} available jobs` : "No jobs found"}
+                                    {!hasSearched ? "Search jobs to view opportunities" : jobs.length ? `Showing ${from}-${to} matching jobs` : "No jobs found"}
                                 </p>
                             </div>
 
@@ -1633,7 +1637,7 @@ export default function FreelancerJobsPage() {
                                     Hourly Price
                                 </label>
 
-                                <span className="text-blue-600 text-xs font-bold">Total: {total}</span>
+                                <span className="text-blue-600 text-xs font-bold">Total Search Jobs: {total}</span>
                             </div>
                         </div>
 
@@ -1880,7 +1884,7 @@ export default function FreelancerJobsPage() {
                                 <p className="text-[11px] text-gray-500">
                                     Showing <span className="font-semibold text-gray-800">{from}</span>–
                                     <span className="font-semibold text-gray-800">{to}</span> of{" "}
-                                    <span className="font-semibold text-gray-800">{total}</span> jobs
+                                    <span className="font-semibold text-gray-800">{total}</span> search jobs
                                 </p>
 
                                 <div className="flex items-center gap-2">
@@ -1894,7 +1898,7 @@ export default function FreelancerJobsPage() {
                                     </button>
 
                                     <div className="flex h-8 items-center rounded-md border border-blue-200 bg-blue-50 px-3 text-[11px] font-semibold text-blue-700">
-                                        Page {currentPage} of {totalPages}
+                                        Page {currentPage}
                                     </div>
 
                                     <button
