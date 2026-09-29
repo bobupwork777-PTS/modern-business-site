@@ -32,29 +32,16 @@ type Job = {
     client?: {
         totalFeedback?: number;
         totalReviews?: number;
-        totalHires?: number;
-        totalPostedJobs?: number;
         verificationStatus?: string;
         memberSinceDateTime?: string;
         companyRid?: string;
         edcUserId?: string;
-        totalSpent?: { displayValue?: string; currency?: string };
         location?: { country?: string; city?: string; timezone?: string };
-    };
-    activity?: {
-        lastClientActivity?: string;
-        invitesSent?: number;
-        totalInvitedToInterview?: number;
-        totalHired?: number;
-        totalUnansweredInvites?: number;
-        totalOffered?: number;
-        totalRecommended?: number;
     };
 };
 
 type AIReport = { relevant: boolean; proposal?: string; reason?: string; error?: string };
 type PageInfo = { endCursor: string | null; hasNextPage: boolean };
-type PaymentFilter = "all" | "verified" | "unverified";
 type AddOptionType = "country" | "skill";
 type SortColumn = "status" | "elapsed" | "country" | "feedback" | "applicants" | "proposals" | "verified" | "published";
 type SortDirection = "desc" | "asc";
@@ -121,7 +108,6 @@ export default function FreelancerJobsPage() {
     const [hasSearched, setHasSearched] = useState(false);
     const [fixedPriceFirst, setFixedPriceFirst] = useState(false);
     const [hourlyPriceFirst, setHourlyPriceFirst] = useState(false);
-    const [previousClientFirst, setPreviousClientFirst] = useState(false);
     const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -137,7 +123,6 @@ export default function FreelancerJobsPage() {
     const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
     const [budgetMin, setBudgetMin] = useState("");
     const [budgetMax, setBudgetMax] = useState("");
-    const [paymentVerified, setPaymentVerified] = useState<PaymentFilter>("all");
     const [applicantRange, setApplicantRange] = useState("all");
     const [postedDays, setPostedDays] = useState("all");
     const [showAddOptionModal, setShowAddOptionModal] = useState(false);
@@ -158,12 +143,9 @@ export default function FreelancerJobsPage() {
         { key: "url", label: "URL" },
         { key: "country", label: "Client Country" },
         { key: "client", label: "Client" },
-        // { key: "memberSince", label: "Member Since" },
         { key: "published", label: "Published" },
-        { key: "activity", label: "Activity" },
         { key: "feedback", label: "Feedback" },
         { key: "applicants", label: "Applicants" },
-        { key: "verified", label: "Verified" },
         { key: "budget", label: "Budget" }
     ];
 
@@ -252,7 +234,6 @@ export default function FreelancerJobsPage() {
         page = 1,
         cursor = "0",
         keyword?: string,
-        previousClientFirstOverride?: boolean,
         selectedSkillsOverride?: string[]
     ) {
 
@@ -267,8 +248,6 @@ export default function FreelancerJobsPage() {
             searchMode === "quick" || searchMode === "manual"
                 ? searchKeyword
                 : "";
-
-        const prioritizePreviousClient = previousClientFirstOverride ?? previousClientFirst;
 
         try {
 
@@ -290,14 +269,14 @@ export default function FreelancerJobsPage() {
                         cursor
                 });
 
-if (selectedCountries.length && !allCountriesSelected) {
+            if (selectedCountries.length) {
 
-    params.set(
-        "countries",
-        selectedCountries.join(",")
-    );
+                params.set(
+                    "countries",
+                    selectedCountries.join(",")
+                );
 
-}
+            }
 
             const activeSkills =
                 selectedSkillsOverride ??
@@ -327,17 +306,6 @@ if (selectedCountries.length && !allCountriesSelected) {
             }
 
             if (
-                paymentVerified !==
-                "all"
-            ) {
-
-                params.set(
-                    "paymentVerified",
-                    paymentVerified
-                );
-            }
-
-            if (
                 applicantRange !==
                 "all"
             ) {
@@ -359,13 +327,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                 );
             }
 
-            if (prioritizePreviousClient) {
-                params.set(
-                    "previousClient",
-                    "true"
-                );
-            }
-
             if (process.env.NODE_ENV === "development") {
                 console.groupCollapsed("[Freelancer browser → API] Search request");
                 console.log("URL:", `/api/freelancer/jobs?${params.toString()}`);
@@ -376,8 +337,8 @@ if (selectedCountries.length && !allCountriesSelected) {
             const response =
                 await fetch(`/api/freelancer/jobs?${params.toString()}`,
                     {
-                        method:"GET",
-                        cache:"no-store",
+                        method: "GET",
+                        cache: "no-store",
                         headers: {
                             Accept:
                                 "application/json"
@@ -385,17 +346,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                     }
                 );
 
-            /*
-             * IMPORTANT:
-             *
-             * Read text first.
-             *
-             * Never immediately call response.json()
-             * because an HTML 404/500/redirect page
-             * would cause:
-             *
-             * Unexpected token '<'
-             */
             const contentType =
                 response.headers.get(
                     "content-type"
@@ -434,7 +384,7 @@ if (selectedCountries.length && !allCountriesSelected) {
             if (raw) {
 
                 try {
-                    data = JSON.parse( raw );
+                    data = JSON.parse(raw);
                 } catch {
 
                     console.error(
@@ -494,15 +444,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                     "Freelancer authorization is required."
                 );
 
-                /*
-                 * IMPORTANT:
-                 *
-                 * Don't fetch /api/upwork/connect.
-                 * It is an OAuth browser redirect.
-                 *
-                 * For now we don't automatically
-                 * redirect while simply searching.
-                 */
                 return;
             }
 
@@ -691,30 +632,6 @@ if (selectedCountries.length && !allCountriesSelected) {
         await searchJobs(previousPage, pageCursors[previousPage] ?? "0");
         window.scrollTo({ top: 0, behavior: "smooth" });
     }
-
-    function handleQuickSearch(keyword: string, skills: string[] = []) {
-
-        setSearchMode("quick");
-
-        setSearch(keyword);
-
-        if (skills.length) {
-            setSelectedSkills(skills);
-        }
-
-        setPageCursors({
-            1: "0"
-        });
-
-        void searchJobs(
-            1,
-            "0",
-            keyword,
-            undefined,
-            skills
-        );
-    }
-
     function toggleCountry(country: string) {
         if (country === "ALL") {
             setSelectedCountries(allCountriesSelected ? [] : [...countryOptions]);
@@ -747,12 +664,10 @@ if (selectedCountries.length && !allCountriesSelected) {
         setSelectedSkills([]);
         setBudgetMin("");
         setBudgetMax("");
-        setPaymentVerified("all");
         setApplicantRange("all");
         setPostedDays("all");
         setFixedPriceFirst(false);
         setHourlyPriceFirst(false);
-        setPreviousClientFirst(false);
         setSortColumn(null);
         setSortDirection("desc");
     }
@@ -761,12 +676,10 @@ if (selectedCountries.length && !allCountriesSelected) {
         (selectedCountries.length > 0 && !allCountriesSelected ? 1 : 0) +
         (budgetMin ? 1 : 0) +
         (budgetMax ? 1 : 0) +
-        (paymentVerified !== "all" ? 1 : 0) +
         (applicantRange !== "all" ? 1 : 0) +
         (postedDays !== "all" ? 1 : 0) +
         (fixedPriceFirst ? 1 : 0) +
-        (hourlyPriceFirst ? 1 : 0) +
-        (previousClientFirst ? 1 : 0);
+        (hourlyPriceFirst ? 1 : 0);
 
     function handleFixedPriceFirstChange(checked: boolean) {
         setFixedPriceFirst(checked);
@@ -803,15 +716,6 @@ if (selectedCountries.length && !allCountriesSelected) {
         return sortDirection === "desc" ? "↓" : "↑";
     }
 
-    async function handlePreviousClientFirstChange(checked: boolean) {
-        setPreviousClientFirst(checked);
-
-        if (hasSearched) {
-            setPageCursors({ 1: "0" });
-            await searchJobs(1, "0", undefined, checked);
-        }
-    }
-
     function openAddOptionModal() {
         setAddOptionType(null);
         setNewOptionValue("");
@@ -826,7 +730,7 @@ if (selectedCountries.length && !allCountriesSelected) {
         setAddOptionError("");
     }
 
- async function addCountryOrSkill() {
+    async function addCountryOrSkill() {
         const value = newOptionValue.trim();
 
         if (!addOptionType) {
@@ -923,17 +827,13 @@ if (selectedCountries.length && !allCountriesSelected) {
         const fixedAmount = job.amount?.displayValue;
 
         if (hourlyMin || hourlyMax) {
-            if (hourlyMin && hourlyMax) {
-                return `Hourly Price: ${hourlyMin} - ${hourlyMax}/hr`;
-            }
-
-            return `Hourly Price: ${hourlyMin || hourlyMax}/hr`;
+            const range = hourlyMin && hourlyMax
+                ? `${hourlyMin} - ${hourlyMax}`
+                : hourlyMin || hourlyMax;
+            return `Hourly Price:\n${range}/hr`;
         }
 
-        if (fixedAmount) {
-            return `Fixed Price: ${fixedAmount}`;
-        }
-
+        if (fixedAmount) return `Fixed Price:\n${fixedAmount}`;
         return "Not specified";
     }
 
@@ -950,13 +850,6 @@ if (selectedCountries.length && !allCountriesSelected) {
             job.hourlyBudgetMin?.displayValue ||
             job.hourlyBudgetMax?.displayValue
         );
-    }
-
-    function isVerified(status?: string) {
-        if (!status) return false;
-        const value = status.toLowerCase();
-        if (value.includes("unverified")) return false;
-        return value.includes("verified") || value.includes("true");
     }
 
     function isFeaturedJob(job: Job) {
@@ -998,204 +891,156 @@ if (selectedCountries.length && !allCountriesSelected) {
         return `https://www.freelancer.com/projects/${code}`;
     }
 
-    // async function analyzeJob(job: Job) {
-    //     setSelectedJob(job);
-    //     setShowModal(true);
-    //     setAnalyzing(true);
-    //     setAiReport(null);
-
-    //     const activity = [
-    //         `Proposals: ${getProposalRange(job.totalApplicants)}`,
-    //         `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
-    //         `Invites: ${job.activity?.invitesSent ?? 0}`,
-    //         `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`
-    //     ].join(", ");
-
-    //     const analysisJob = {
-    //         Title: job.title || "Untitled Job",
-    //         Description: job.description || "",
-    //         Budget: getBudget(job),
-    //         Status: getStatusText(job),
-    //         PublishedDate: formatDate(job.publishedDateTime),
-    //         Activity: activity,
-    //         URL: getJobUrl(job)
-    //     };
-
-    //     try {
-    //         const response = await fetch("/api/analyze", {
-    //             method: "POST",
-    //             headers: { "Content-Type": "application/json" },
-    //             body: JSON.stringify({ job: analysisJob })
-    //         });
-    //         const data = await response.json();
-    //         if (!response.ok) throw new Error(data.error || "AI analysis failed");
-    //         setAiReport(data);
-    //     } catch (err) {
-    //         console.error("Analyze error:", err);
-    //         setAiReport({ relevant: false, error: "Unable to analyze this opportunity. Please try again." });
-    //     } finally {
-    //         setAnalyzing(false);
-    //     }
-    // }
-
     async function analyzeJob(job: Job) {
 
-    setSelectedJob(job);
-    setShowModal(true);
-    setAnalyzing(true);
-    setAiReport(null);
+        setSelectedJob(job);
+        setShowModal(true);
+        setAnalyzing(true);
+        setAiReport(null);
 
 
-    const activity = `Bids: ${getProposalRange(job.totalApplicants)}`;
+        const activity = `Bids: ${getProposalRange(job.totalApplicants)}`;
 
 
+        let skill = "";
 
-    /*
-        Detect skill
-        You can improve this later using AI
-    */
-    let skill = "Wix";
+        const title =
+            (job.title || "").toLowerCase();
 
-    const title =
-        (job.title || "").toLowerCase();
-
-    const description =
-        (job.description || "").toLowerCase();
+        const description =
+            (job.description || "").toLowerCase();
 
 
-    if (
-        title.includes("webflow") ||
-        description.includes("webflow")
-    ) {
-        skill = "Webflow";
-    }
+        if (
+            title.includes("webflow") ||
+            description.includes("webflow")
+        ) {
+            skill = "Webflow";
+        }
 
-    else if (
-        title.includes("shopify") ||
-        description.includes("shopify")
-    ) {
-        skill = "Shopify";
-    }
+        else if (
+            title.includes("shopify") ||
+            description.includes("shopify")
+        ) {
+            skill = "Shopify";
+        }
 
-    else if (
-        title.includes("framer") ||
-        description.includes("framer")
-    ) {
-        skill = "Framer";
-    }
+        else if (
+            title.includes("framer") ||
+            description.includes("framer")
+        ) {
+            skill = "Framer";
+        }
 
-    else if (
-        title.includes("illustration") ||
-        description.includes("illustration")
-    ) {
-        skill = "Illustration";
-    }
-
-
-
-    const analysisJob = {
-
-        Skill: skill,
-
-        Title:
-            job.title ||
-            "Untitled Job",
-
-        Description:
-            job.description ||
-            "",
-
-        Budget:
-            getBudget(job),
-
-        Status:
-            getStatusText(job),
-
-        PublishedDate:
-            formatDate(
-                job.publishedDateTime
-            ),
-
-        Activity:
-            activity,
-
-        URL:
-            getJobUrl(job)
-    };
-
-
-
-    try {
-
-
-        const response =
-            await fetch(
-                "/api/analyze",
-                {
-                    method:"POST",
-
-                    headers:{
-                        "Content-Type":
-                        "application/json"
-                    },
-
-                    body:
-                    JSON.stringify({
-                        job:analysisJob
-                    })
-                }
-            );
-
-
-
-        const data =
-            await response.json();
-
-
-
-        if(!response.ok){
-
-            throw new Error(
-                data.error ||
-                "AI analysis failed"
-            );
-
+        else if (
+            title.includes("illustration") ||
+            description.includes("illustration")
+        ) {
+            skill = "Illustration";
         }
 
 
 
-        setAiReport(data);
+        const analysisJob = {
+
+            Skill: skill,
+
+            Title:
+                job.title ||
+                "Untitled Job",
+
+            Description:
+                job.description ||
+                "",
+
+            Budget:
+                getBudget(job),
+
+            Status:
+                getStatusText(job),
+
+            PublishedDate:
+                formatDate(
+                    job.publishedDateTime
+                ),
+
+            URL:
+                getJobUrl(job)
+        };
 
 
+
+        try {
+
+
+            const response =
+                await fetch(
+                    "/api/analyze",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body:
+                            JSON.stringify({
+                                job: analysisJob
+                            })
+                    }
+                );
+
+
+
+            const data =
+                await response.json();
+
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    data.error ||
+                    "AI analysis failed"
+                );
+
+            }
+
+
+
+            setAiReport(data);
+
+
+
+        }
+        catch (err) {
+
+
+            console.error(
+                "Analyze error:",
+                err
+            );
+
+
+            setAiReport({
+
+                relevant: false,
+
+                error:
+                    "Unable to analyze this opportunity. Please try again."
+
+            });
+
+
+        }
+        finally {
+
+            setAnalyzing(false);
+
+        }
 
     }
-    catch(err){
-
-
-        console.error(
-            "Analyze error:",
-            err
-        );
-
-
-        setAiReport({
-
-            relevant:false,
-
-            error:
-            "Unable to analyze this opportunity. Please try again."
-
-        });
-
-
-    }
-    finally{
-
-        setAnalyzing(false);
-
-    }
-
-}
 
     function closeModal() {
         setShowModal(false);
@@ -1280,26 +1125,12 @@ if (selectedCountries.length && !allCountriesSelected) {
                         row["Client Country"] = job.client?.location?.country || "";
                         break;
 
-                    case "client":
-                        row.Client =
-                            `${job.client?.totalPostedJobs ?? "-"} jobs posted | ${job.client?.totalSpent?.displayValue || "-"} spent | ${job.client?.totalHires ?? "-"} hires`;
-                        break;
-
-                    // case "memberSince":
-                    //     row["Member Since"] = formatMemberSince(job.client?.memberSinceDateTime);
-                    //     break;
-
                     case "feedback":
                         row.Feedback = job.client?.totalFeedback ?? "-";
                         break;
 
                     case "applicants":
                         row.Applicants = job.totalApplicants ?? 0;
-                        break;
-
-                    case "verified":
-                        row.Verified = !job.client?.verificationStatus ? "Unknown"
-                            : isVerified(job.client.verificationStatus) ? "Verified" : "Unverified";
                         break;
 
                     case "budget":
@@ -1310,9 +1141,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                         row.Published = formatDate(job.publishedDateTime);
                         break;
 
-                    case "activity":
-                        row.Activity = `Bids: ${getProposalRange(job.totalApplicants)}`;
-                        break;
                 }
 
             });
@@ -1329,7 +1157,7 @@ if (selectedCountries.length && !allCountriesSelected) {
             "Jobs"
         );
 
-      
+
         const now = new Date();
 
         const day = String(now.getDate()).padStart(2, "0");
@@ -1353,9 +1181,9 @@ if (selectedCountries.length && !allCountriesSelected) {
         setShowExportModal(false);
     }
 
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const from = total ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
-    const to = total && jobs.length ? from + jobs.length - 1 : 0;
+
+    const from = jobs.length ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
+    const to = jobs.length ? from + jobs.length - 1 : 0;
 
     const displayedJobs = jobs
         .map((job, index) => ({ job, index }))
@@ -1367,7 +1195,7 @@ if (selectedCountries.length && !allCountriesSelected) {
                     case "status":
                         comparison = getStatusSortValue(a.job) - getStatusSortValue(b.job);
                         break;
-                    
+
                     case "elapsed":
                         comparison =
                             new Date(a.job.publishedDateTime || 0).getTime() -
@@ -1393,11 +1221,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                         comparison =
                             (a.job.totalApplicants ?? 0) -
                             (b.job.totalApplicants ?? 0);
-                        break;
-
-                    case "verified":
-                        comparison = Number(isVerified(a.job.client?.verificationStatus)) -
-                            Number(isVerified(b.job.client?.verificationStatus));
                         break;
 
                     case "published":
@@ -1467,20 +1290,22 @@ if (selectedCountries.length && !allCountriesSelected) {
                 <div className="max-w-[1900px] mx-auto">
                     <section className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3 mb-3">
                         <div>
-                            <div className="inline-flex items-center gap-1.5 text-blue-400 font-bold uppercase tracking-[1.5px] text-[12px] mb-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                                Freelancer Job Monitoring
+                            <div className="mb-3 flex items-center gap-3 md:gap-4">
+                                <img src="https://cdn.simpleicons.org/freelancer/29B2FE" alt="" width={80} height={80} className="h-14 w-14 shrink-0 md:h-20 md:w-20" />
+                                <span className="text-lg md:text-[30px] font-bold uppercase leading-tight tracking-[1px] md:tracking-[2px] text-[#29B2FE]">
+                                    Freelancer Job Monitoring
+                                </span>
                             </div>
-                            <h1 className="text-2xl md:text-3xl lg:text-[32px] leading-tight font-semibold text-white">
-                                Find the right opportunities,<span className="text-blue-400"> faster.</span>
+                            <h1 className="text-xl md:text-2xl font-semibold leading-tight text-white">
+                                Find the right opportunities,<span className="text-[#29B2FE]"> faster.</span>
                             </h1>
-                            <p className="mt-1.5 text-gray-300 text-xs">
+                            <p className="mt-1.5 text-xs text-gray-300">
                                 Search, monitor and analyse Freelancer opportunities directly from your Phoenix dashboard.
                             </p>
                         </div>
 
                         <div className="flex flex-wrap gap-1.5">
-                            <StatCard label="Total Results" value={total} />
+                            <StatCard label="Total Search Jobs" value={total} />
                             <StatCard label="Loaded" value={jobs.length} />
                         </div>
                     </section>
@@ -1489,6 +1314,7 @@ if (selectedCountries.length && !allCountriesSelected) {
 
                         <div className="mt-3 border-t border-gray-200 pt-3">
                             <div className="mb-2 flex items-center justify-between gap-3">
+
                                 <div className="flex items-center gap-2">
                                     <h3 className="text-[12px] font-semibold text-gray-800">Job Filters</h3>
                                     {activeFilterCount > 0 && (
@@ -1501,8 +1327,9 @@ if (selectedCountries.length && !allCountriesSelected) {
                                     type="button"
                                     onClick={clearFilters}
                                     disabled={activeFilterCount === 0}
-                                    className="text-[11px] font-medium text-gray-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
-                                >
+                                    className="text-[11px] font-bold text-[#29B2FE] disabled:cursor-not-allowed disabled:opacity-40"
+                                    style={{ WebkitTextStroke: "0.5px black" }}
+                                    >
                                     Clear filters
                                 </button>
                             </div>
@@ -1621,25 +1448,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                                                 placeholder="Max"
                                                 className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-[11px] text-gray-900 outline-none focus:border-blue-500"
                                             />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="mb-1 block text-[11px] font-semibold text-gray-700">Payment Verified</label>
-                                        <div className="flex h-9 items-center gap-3 rounded-lg border border-gray-300 px-2.5">
-                                            {(["all", "verified", "unverified"] as PaymentFilter[]).map(value => (
-                                                <label key={value} className="flex cursor-pointer items-center gap-1 text-[12px] text-gray-700">
-                                                    <input
-                                                        type="radio"
-                                                        name="paymentVerified"
-                                                        value={value}
-                                                        checked={paymentVerified === value}
-                                                        onChange={() => setPaymentVerified(value)}
-                                                        className="h-3.5 w-3.5"
-                                                    />
-                                                    {value === "all" ? "All" : value === "verified" ? "Verified" : "Unverified"}
-                                                </label>
-                                            ))}
                                         </div>
                                     </div>
 
@@ -1795,7 +1603,7 @@ if (selectedCountries.length && !allCountriesSelected) {
                             <div>
                                 <h2 className="text-base font-semibold text-[#101828]">Latest Opportunities</h2>
                                 <p className="text-gray-400 text-[12px] mt-0.5">
-                                    {!hasSearched ? "Search jobs to view opportunities" : total > 0 ? `Showing ${from}-${to} of ${total} available jobs` : "No jobs found"}
+                                    {!hasSearched ? "Search jobs to view opportunities" : jobs.length ? `Showing ${from}-${to} matching jobs` : "No jobs found"}
                                 </p>
                             </div>
 
@@ -1829,40 +1637,26 @@ if (selectedCountries.length && !allCountriesSelected) {
                                     Hourly Price
                                 </label>
 
-                                <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-800 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={previousClientFirst}
-                                        onChange={e => void handlePreviousClientFirstChange(e.target.checked)}
-                                        disabled={loading}
-                                        className="w-3.5 h-3.5 disabled:cursor-not-allowed"
-                                    />
-                                    Previous Client First
-                                </label>
-
-                                <span className="text-blue-600 text-xs font-bold">Total: {total}</span>
+                                <span className="text-blue-600 text-xs font-bold">Total Search Jobs: {total}</span>
                             </div>
                         </div>
 
                         <div className="w-full overflow-hidden">
                             <table className="w-full table-fixed border-collapse text-[11px]"><style>{`td,th{overflow:hidden;text-overflow:ellipsis;} .break-cell{white-space:normal;word-break:break-word;}`}</style>
                                 <colgroup>
-                                    <col className="w-[5%]" />
-                                    <col className="w-[5%]" />
+                                    <col className="w-[8%]" />
+                                    <col className="w-[8%]" />
                                     <col className="w-[12%]" />
                                     <col className="w-[18%]" />
-                                    <col className="w-[4%]" />
                                     <col className="w-[5%]" />
                                     <col className="w-[5%]" />
-                                    {/* <col className="w-[8%]" /> */}
-                                    <col className="w-[4%]" />
-                                    <col className="w-[6%]" />
+                                    <col className="w-[8%]" />
+                                    <col className="w-[8%]" />
                                     <col className="w-[5%]" />
-                                    <col className="w-[3%]" />
-                                    <col className="w-[3%]" />
-                                    <col className="w-[4%]" />
                                     <col className="w-[5%]" />
-                                    <col className="w-[7%]" />
+                                    <col className="w-[5%]" />
+                                    <col className="w-[5%]" />
+                                    <col className="w-[8%]" />
                                 </colgroup>
 
                                 <thead className="bg-[#F8FAFC]">
@@ -1876,7 +1670,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                                                 Status <span className="text-[10px]">{getSortIndicator("status")}</span>
                                             </button>
                                         </th>
-                                        {/* <th className={thClass}>Elapsed</th> */}
                                         <th className={thClass}>
                                             <button
                                                 type="button"
@@ -1899,7 +1692,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                                             </button>
                                         </th>
                                         <th className={thClass}>Client</th>
-                                        {/* <th className={thClass}>Member Since</th> */}
                                         <th className={thClass}>
                                             <button
                                                 type="button"
@@ -1909,7 +1701,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                                                 Published <span className="text-[10px]">{getSortIndicator("published")}</span>
                                             </button>
                                         </th>
-                                        <th className={thClass}>Activity</th>
                                         <th className={thClass}>
                                             <button
                                                 type="button"
@@ -1938,15 +1729,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                                                 className="inline-flex items-center gap-1 hover:text-blue-600"
                                             >
                                                 Appl <span className="text-[10px]">{getSortIndicator("applicants")}</span>
-                                            </button>
-                                        </th>
-                                        <th className={thClass}>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleColumnSort("verified")}
-                                                className="inline-flex items-center gap-1 hover:text-blue-600"
-                                            >
-                                                Verified <span className="text-[10px]">{getSortIndicator("verified")}</span>
                                             </button>
                                         </th>
                                         <th className={thClass}>Budget</th>
@@ -1985,7 +1767,6 @@ if (selectedCountries.length && !allCountriesSelected) {
                                         </tr>
                                     ) : (
                                         displayedJobs.map(job => {
-                                            const verified = isVerified(job.client?.verificationStatus);
                                             const jobUrl = getJobUrl(job);
                                             return (
                                                 <tr key={job.id} className="border-t border-gray-100 hover:bg-blue-50/40 transition">
@@ -2038,47 +1819,22 @@ if (selectedCountries.length && !allCountriesSelected) {
 
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col gap-0 text-[11px] leading-[15px]">
-                                                            <span className="text-gray-900">
-                                                                {job.client?.totalPostedJobs == null ? "Jobs posted: unavailable" : `${job.client.totalPostedJobs} ${job.client.totalPostedJobs === 1 ? "job" : "jobs"} posted`}
-                                                            </span>
-                                                            <span className="text-gray-500">
-                                                                {job.client?.totalSpent?.displayValue ? `${job.client.totalSpent.displayValue} spent` : "Spent: unavailable"}
-                                                            </span>
-                                                            <span className="text-gray-500">
-                                                                {job.client?.totalHires == null ? "Hires: unavailable" : `${job.client.totalHires} ${job.client.totalHires === 1 ? "hire" : "hires"}`}
-                                                            </span>
                                                             {job.client?.location?.city && <span className="text-gray-500">{job.client.location.city}</span>}
                                                             {job.client?.memberSinceDateTime && <span className="text-gray-500">Member since {formatMemberSince(job.client.memberSinceDateTime)}</span>}
                                                         </div>
                                                     </td>
 
-                                                    {/* <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-nowrap">
-                                                        {formatMemberSince(job.client?.memberSinceDateTime)}
-                                                    </td> */}
-
                                                     <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal">{formatDate(job.publishedDateTime)}</td>
-
-                                                    <td className="px-1.5 py-2 align-top">
-                                                        <div className="flex flex-col gap-0 text-[11px] leading-[14px]">
-                                                            <span>Bids: {getProposalRange(job.totalApplicants)}</span>
-                                                            <span>Interviewing: {job.activity?.totalInvitedToInterview ?? "unavailable"}</span>
-                                                            <span>Invites: {job.activity?.invitesSent ?? "unavailable"}</span>
-                                                            <span>Unanswered: {job.activity?.totalUnansweredInvites ?? "unavailable"}</span>
-                                                        </div>
-                                                    </td>
-
                                                     <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{getProposalRange(job.totalApplicants)}</td>
 
-                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.client?.totalFeedback ?? "-"}</td>
-                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.totalApplicants ?? 0}</td>
-
-                                                    <td className="px-1.5 py-2 align-top">
-                                                        <span className={`text-[11px] leading-[15px] font-medium ${verified ? "text-green-600" : "text-gray-500"}`}>
-                                                            {!job.client?.verificationStatus ? "Unknown" : verified ? "Verified" : "Unverified"}
-                                                        </span>
+                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">
+                                                        {job.client?.totalFeedback == null ? "Unknown" :
+                                                            <>{job.client.totalFeedback.toFixed(1)}{job.client.totalReviews != null && <span className="block text-gray-500">{job.client.totalReviews} reviews</span>}</>}
                                                     </td>
-
-                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal break-words">{getBudget(job)}</td>
+                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.totalApplicants ?? 0}</td>
+                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal break-words">{getBudget(job).split("\n").map((line, i) => (
+                                                        <div key={i}>{line}</div>
+                                                    ))}</td>
 
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col gap-1.5">
@@ -2128,7 +1884,7 @@ if (selectedCountries.length && !allCountriesSelected) {
                                 <p className="text-[11px] text-gray-500">
                                     Showing <span className="font-semibold text-gray-800">{from}</span>–
                                     <span className="font-semibold text-gray-800">{to}</span> of{" "}
-                                    <span className="font-semibold text-gray-800">{total}</span> jobs
+                                    <span className="font-semibold text-gray-800">{total}</span> search jobs
                                 </p>
 
                                 <div className="flex items-center gap-2">
@@ -2142,7 +1898,7 @@ if (selectedCountries.length && !allCountriesSelected) {
                                     </button>
 
                                     <div className="flex h-8 items-center rounded-md border border-blue-200 bg-blue-50 px-3 text-[11px] font-semibold text-blue-700">
-                                        Page {currentPage} of {totalPages}
+                                        Page {currentPage}
                                     </div>
 
                                     <button
