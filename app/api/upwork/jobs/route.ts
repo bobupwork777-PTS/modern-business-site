@@ -99,6 +99,43 @@ query SearchJobs(
 }
 `;
 
+
+const JOB_DETAIL_QUERY = `
+query JobDetails($id: ID!) {
+
+  marketplaceJobPosting(id:$id) {
+
+    contractorSelection {
+
+      qualification {
+
+        contractorType
+        englishProficiency
+        hasPortfolio
+        hoursWorked
+        risingTalent
+        jobSuccessScore
+        minEarning
+
+      }
+
+      location {
+
+        countries
+        states
+        timezones
+
+      }
+
+    }
+
+  }
+
+}
+`;
+
+
+
 type PageInfo = {
   endCursor?: string | null;
   hasNextPage?: boolean;
@@ -136,12 +173,12 @@ const allJobsCache =
   globalCache.__upworkAllJobsCache ||
   new Map<string, CacheEntry>();
 
+const qualificationCache =
+  new Map<string, any>();
+
 globalCache.__upworkAllJobsCache = allJobsCache;
 
-
-/* =========================
-   HELPERS
-========================= */
+/* ========================= HELPERS ========================= */
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error
@@ -175,6 +212,175 @@ async function callUpworkGraphQL(query: string, variables: Record<string, any>) 
 
   return body;
 }
+
+async function getPreferredQualifications(jobId:string) {
+
+  if (!jobId) {
+    return null;
+  }
+
+
+  if (qualificationCache.has(jobId)) {
+    return qualificationCache.get(jobId);
+  }
+
+
+  try {
+
+    console.log(
+      "QUALIFICATION ID USED ===",
+      jobId
+    );
+
+
+    const response:any =
+      await callUpworkGraphQL(
+        JOB_DETAIL_QUERY,
+        {
+          id: jobId
+        }
+      );
+
+
+    console.log(
+      "JOB DETAIL RESPONSE ===",
+      JSON.stringify(
+        response,
+        null,
+        2
+      )
+    );
+
+
+    const contractorSelection =
+      response
+        ?.data
+        ?.marketplaceJobPosting
+        ?.contractorSelection;
+
+
+    if (!contractorSelection) {
+
+      qualificationCache.set(
+        jobId,
+        null
+      );
+
+      return null;
+
+    }
+
+
+    const qualification =
+      contractorSelection.qualification || {};
+
+
+    const location =
+      contractorSelection.location || {};
+
+
+   const result = {
+
+    contractorType:
+        formatEnum(
+            qualification.contractorType
+        ),
+
+    englishProficiency:
+        formatEnum(
+            qualification.englishProficiency
+        ),
+
+    hasPortfolio:
+        Boolean(
+            qualification.hasPortfolio
+        ),
+
+    hoursWorked:
+        qualification.hoursWorked ?? 0,
+
+    risingTalent:
+        Boolean(
+            qualification.risingTalent
+        ),
+
+    jobSuccessScore:
+        qualification.jobSuccessScore ?? null,
+
+    minEarning:
+        formatEnum(
+            qualification.minEarning
+        ),
+
+    location:
+        location.countries?.[0] ||
+        location.states?.[0] ||
+        null
+
+};
+
+
+    qualificationCache.set(
+      jobId,
+      result
+    );
+
+
+    return result;
+
+
+  } catch(error:any) {
+
+    console.error(
+      "QUALIFICATION ERROR ===",
+      error?.message || error
+    );
+
+    return null;
+
+  }
+
+}
+
+function formatEnum(
+  value?: string | null
+) {
+
+  if (!value)
+    return null;
+
+
+  return value
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(
+      /\b\w/g,
+      char => char.toUpperCase()
+    );
+
+}
+
+function formatMemberSince(date?: string | null) {
+
+  if (!date) return null;
+
+  const value = new Date(date);
+
+  if (isNaN(value.getTime()))
+    return null;
+
+
+  return value.toLocaleDateString(
+    "en-US",
+    {
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    }
+  );
+
+}
+
 
 function isVerifiedStatus(status?: string) {
   if (!status) return false;
@@ -301,14 +507,7 @@ function normalizeCountry(value?: string) {
     .toLowerCase();
 }
 
-function normalizeJobId(value?: string | null) {
-  return String(value || "")
-    .trim()
-    .replace(/^~/, "");
-}
 
-const MEMBER_SINCE_DEBUG_JOB_ID =
-  "022100716368678466465";
 
 function matchesAllFilters(
   edge: any,
@@ -425,11 +624,7 @@ function matchesAllFilters(
 }
 
 
-
-
-/* =========================
-   UPWORK FETCH
-========================= */
+/* ========================= UPWORK FETCH ========================= */
 
 async function fetchBatch(
   searchExpression: string,
@@ -466,6 +661,14 @@ async function fetchBatch(
       "marketplaceJobPostingsSearch returned no result."
     );
   }
+
+  console.log("RAW JOB NODE:",
+    JSON.stringify(
+      result.edges?.[0]?.node,
+      null,
+      2
+    )
+  );
 
   return result;
 }
@@ -543,9 +746,7 @@ async function fetch50Jobs(
 }
 
 
-/* =========================
-   FETCH ALL RESULTS
-========================= */
+/* ========================= FETCH ALL RESULTS ========================= */
 
 async function fetchAllJobs(searchExpression: string) {
   const cacheKey =
@@ -652,174 +853,123 @@ async function fetchAllJobs(searchExpression: string) {
   };
 }
 
+/* ========================= FORMAT JOB ========================= */
 
-/* =========================
-   FORMAT JOB
-========================= */
+async function formatJob(edge: any) {
 
-function formatJob(edge: any) {
-  const job = edge?.node || {};
+  const job =
+    edge?.node || {};
+
+
+  const preferredQualifications =
+    await getPreferredQualifications(
+      job.id
+    );
+
 
   const activity =
     job?.job
       ?.activityStat
       ?.jobActivity || {};
 
-  const relation =
-    job?.freelancerClientRelation ||
-    null;
 
   return {
-    id: job.id || "",
-    title: job.title || "",
-    description: job.description || "",
-    ciphertext: job.ciphertext || "",
+
+    id:
+      job.id || "",
+
+
+    title:
+      job.title || "",
+
+
+    description:
+      job.description || "",
+
+
+    ciphertext:
+      job.ciphertext || "",
+
+
+    preferredQualifications,
+
 
     applied:
-      job.applied === true,
+      Boolean(job.applied),
+
 
     premium:
-      job.premium === true,
+      Boolean(job.premium),
 
-    isFeatured:
-      job.premium === true,
-
-    isPreviousClient:
-      Boolean(relation),
-
-    freelancerClientRelation:
-      relation,
 
     publishedDateTime:
-      job.publishedDateTime ||
-      null,
+      job.publishedDateTime || null,
 
-    // Kept at top level as well so the table can use
-    // job.memberSinceDateTime directly.
-    memberSinceDateTime:
-      job.client
-        ?.memberSinceDateTime ||
-      null,
 
     totalApplicants:
       Number(
-        job.totalApplicants ||
-        0
+        job.totalApplicants || 0
       ),
+
 
     amount:
       job.amount || null,
 
-    hourlyBudgetMin:
-      job.hourlyBudgetMin ||
-      null,
-
-    hourlyBudgetMax:
-      job.hourlyBudgetMax ||
-      null,
 
     client: {
-      totalFeedback: Number(
-        job.client
-          ?.totalFeedback || 0
-      ),
 
-      totalReviews: Number(
-        job.client
-          ?.totalReviews || 0
-      ),
+      totalFeedback:
+        Number(
+          job.client?.totalFeedback || 0
+        ),
 
-      totalHires: Number(
-        job.client
-          ?.totalHires || 0
-      ),
 
-      totalPostedJobs: Number(
-        job.client
-          ?.totalPostedJobs || 0
-      ),
+      totalReviews:
+        Number(
+          job.client?.totalReviews || 0
+        ),
+
+
+      totalHires:
+        Number(
+          job.client?.totalHires || 0
+        ),
+
+
+      totalPostedJobs:
+        Number(
+          job.client?.totalPostedJobs || 0
+        ),
+
 
       verificationStatus:
-        job.client
-          ?.verificationStatus ||
-        "",
+        job.client?.verificationStatus || "",
 
-      // IMPORTANT:
-      // The GraphQL query already requests this field.
-      // It must also be copied into formatJob(), otherwise
-      // it disappears from the JSON returned to the frontend.
+
       memberSinceDateTime:
-        job.client
-          ?.memberSinceDateTime ||
-        null,
+        job.client?.memberSinceDateTime || null,
+
+
+      memberSince: null,
+
 
       totalSpent:
-        job.client
-          ?.totalSpent ||
-        null,
+        job.client?.totalSpent || null,
 
-      location: {
-        country:
-          job.client
-            ?.location
-            ?.country ||
-          "",
 
-        city:
-          job.client
-            ?.location
-            ?.city ||
-          "",
+      location:
+        job.client?.location || null
 
-        timezone:
-          job.client
-            ?.location
-            ?.timezone ||
-          ""
-      }
     },
 
-    activity: {
-      lastClientActivity:
-        activity
-          .lastClientActivity ||
-        null,
 
-      invitesSent:
-        Number(
-          activity
-            .invitesSent ||
-          0
-        ),
+    activity
 
-      totalInvitedToInterview:
-        Number(
-          activity
-            .totalInvitedToInterview ||
-          0
-        ),
-
-      totalHired:
-        Number(
-          activity
-            .totalHired ||
-          0
-        ),
-
-      totalUnansweredInvites:
-        Number(
-          activity
-            .totalUnansweredInvites ||
-          0
-        )
-    }
   };
+
 }
 
-
-/* =========================
-   API ROUTE
-========================= */
+/* ========================= API ROUTE ========================= */
 
 export async function GET(request: NextRequest) {
   try {
@@ -883,11 +1033,11 @@ export async function GET(request: NextRequest) {
 
     const skills =
       (
-      searchParams.get("skills") || ""
+        searchParams.get("skills") || ""
       )
-      .split(",")
-      .map(x => x.trim())
-      .filter(Boolean);
+        .split(",")
+        .map(x => x.trim())
+        .filter(Boolean);
 
     const optionalNumber = (value: string | null) => {
       if (!value?.trim())
@@ -970,16 +1120,16 @@ export async function GET(request: NextRequest) {
       ) === "true";
 
     const options: SearchOptions = {
-  countries,
-  skills,
-  budgetMin,
-  budgetMax,
-  paymentVerified,
-  applicantMin,
-  applicantMax,
-  postedDays,
-  previousClient
-};
+      countries,
+      skills,
+      budgetMin,
+      budgetMax,
+      paymentVerified,
+      applicantMin,
+      applicantMax,
+      postedDays,
+      previousClient
+    };
 
     const {
       edges: allEdges,
@@ -1020,13 +1170,14 @@ export async function GET(request: NextRequest) {
     }
 
     const total = filteredEdges.length;
-
-    const jobs = filteredEdges
-                      .slice(
-                        offset,
-                        offset + first
-                      )
-                      .map(formatJob);
+    const jobs = await Promise.all(
+      filteredEdges
+        .slice(
+          offset,
+          offset + first
+        )
+        .map(formatJob)
+    );
 
     const nextOffset = offset + first;
 
@@ -1055,7 +1206,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
 
-    console.error( "UPWORK JOB SEARCH ERROR:", error);
+    console.error("UPWORK JOB SEARCH ERROR:", error);
 
     if (
       isUpworkReauthError(

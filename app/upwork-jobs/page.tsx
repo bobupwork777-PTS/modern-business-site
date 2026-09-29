@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import * as XLSX from "xlsx";
@@ -48,6 +48,16 @@ type Job = {
         totalUnansweredInvites?: number;
         totalOffered?: number;
         totalRecommended?: number;
+    };
+    preferredQualifications?: {
+        contractorType?: string | null;
+        englishProficiency?: string | null;
+        hasPortfolio?: boolean;
+        hoursWorked?: number;
+        jobSuccessScore?: number | null;
+        minEarning?: string | null;
+        risingTalent?: boolean;
+        location?: { country?: string | null; city?: string | null; } | string | null;
     };
 };
 
@@ -151,13 +161,13 @@ export default function UpworkJobsPage() {
 
     const exportColumns = [
         { key: "status", label: "Status" },
+        { key: "preferredQualifications", label: "Preferred Qualifications" },
         { key: "elapsed", label: "Elapsed" },
         { key: "title", label: "Job Title" },
         { key: "description", label: "Description" },
         { key: "url", label: "URL" },
         { key: "country", label: "Country" },
         { key: "client", label: "Client" },
-        // { key: "memberSince", label: "Member Since" },
         { key: "published", label: "Published" },
         { key: "activity", label: "Activity" },
         { key: "feedback", label: "Feedback" },
@@ -379,17 +389,8 @@ export default function UpworkJobsPage() {
                     }
                 );
 
-            /*
-             * IMPORTANT:
-             *
-             * Read text first.
-             *
-             * Never immediately call response.json()
-             * because an HTML 404/500/redirect page
-             * would cause:
-             *
-             * Unexpected token '<'
-             */
+
+
             const contentType =
                 response.headers.get(
                     "content-type"
@@ -429,6 +430,7 @@ export default function UpworkJobsPage() {
 
                 try {
                     data = JSON.parse(raw);
+                    console.log("API RESPONSE DATA:", data);
                 } catch {
 
                     console.error(
@@ -989,45 +991,6 @@ export default function UpworkJobsPage() {
         return `https://www.upwork.com/jobs/${code}`;
     }
 
-    // async function analyzeJob(job: Job) {
-    //     setSelectedJob(job);
-    //     setShowModal(true);
-    //     setAnalyzing(true);
-    //     setAiReport(null);
-
-    //     const activity = [
-    //         `Proposals: ${getProposalRange(job.totalApplicants)}`,
-    //         `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
-    //         `Invites: ${job.activity?.invitesSent ?? 0}`,
-    //         `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`
-    //     ].join(", ");
-
-    //     const analysisJob = {
-    //         Title: job.title || "Untitled Job",
-    //         Description: job.description || "",
-    //         Budget: getBudget(job),
-    //         Status: getStatusText(job),
-    //         PublishedDate: formatDate(job.publishedDateTime),
-    //         Activity: activity,
-    //         URL: getJobUrl(job)
-    //     };
-
-    //     try {
-    //         const response = await fetch("/api/analyze", {
-    //             method: "POST",
-    //             headers: { "Content-Type": "application/json" },
-    //             body: JSON.stringify({ job: analysisJob })
-    //         });
-    //         const data = await response.json();
-    //         if (!response.ok) throw new Error(data.error || "AI analysis failed");
-    //         setAiReport(data);
-    //     } catch (err) {
-    //         console.error("Analyze error:", err);
-    //         setAiReport({ relevant: false, error: "Unable to analyze this opportunity. Please try again." });
-    //     } finally {
-    //         setAnalyzing(false);
-    //     }
-    // }
 
     async function analyzeJob(job: Job) {
 
@@ -1041,7 +1004,8 @@ export default function UpworkJobsPage() {
             `Proposals: ${getProposalRange(job.totalApplicants)}`,
             `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
             `Invites: ${job.activity?.invitesSent ?? 0}`,
-            `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`
+            `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`,
+            `Hired: ${job.activity?.totalHired ?? 0}`
         ].join(", ");
 
 
@@ -1193,6 +1157,108 @@ export default function UpworkJobsPage() {
 
     }
 
+    function getPreferredQualificationText(job: Job) {
+
+        const pq = job.preferredQualifications;
+
+        if (!pq) return "-";
+
+        const items: string[] = [];
+
+        if (pq.location) {
+
+            if (typeof pq.location === "object") {
+
+                const locationParts = [
+                    pq.location.city,
+                    pq.location.country
+                ].filter(Boolean);
+
+                if (locationParts.length) {
+                    items.push(
+                        `Location: ${locationParts.join(", ")}`
+                    );
+                }
+
+            } else {
+
+                items.push(
+                    `Location: ${pq.location}`
+                );
+
+            }
+        }
+
+
+        if (pq.contractorType) {
+            items.push(
+                `Type: ${pq.contractorType}`
+            );
+        }
+
+
+        if (pq.englishProficiency) {
+            items.push(
+                `English: ${pq.englishProficiency}`
+            );
+        }
+
+
+        if (
+            pq.jobSuccessScore &&
+            pq.jobSuccessScore > 0
+        ) {
+            items.push(
+                `JSS: ${pq.jobSuccessScore}%`
+            );
+        }
+
+
+        if (
+            pq.minEarning &&
+            pq.minEarning !== "Any"
+        ) {
+            items.push(
+                `Earnings: ${pq.minEarning}`
+            );
+        }
+
+
+        if (
+            pq.hoursWorked &&
+            pq.hoursWorked > 0
+        ) {
+            items.push(
+                `Hours: ${pq.hoursWorked}+`
+            );
+        }
+
+
+        if (pq.hasPortfolio) {
+            items.push(
+                "Portfolio Required"
+            );
+        }
+
+
+        if (pq.risingTalent) {
+            items.push(
+                "Rising Talent"
+            );
+        }
+
+
+        return items.length ? (
+            <>
+                {items.map((item, index) => (
+                    <div key={index}>
+                        {item}
+                    </div>
+                ))}
+            </>
+        ) : "-";
+    }
+
     function closeModal() {
         setShowModal(false);
         setSelectedJob(null);
@@ -1254,6 +1320,13 @@ export default function UpworkJobsPage() {
 
                     case "status":
                         row.Status = getStatusText(job);
+                        break;
+
+                    case "preferredQualifications":
+                        row["Preferred Qualifications"] =
+                            getPreferredQualificationText(job)
+                                .toString()
+                                .replace(/,/g, "\n");
                         break;
 
                     case "elapsed":
@@ -1456,6 +1529,20 @@ export default function UpworkJobsPage() {
             )
         );
     }
+
+    const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+    const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const handleCopyUrl = async (url: string) => {
+        try {
+            await navigator.clipboard.writeText(url);
+            setCopiedUrl(url);
+            if (copyTimer.current) clearTimeout(copyTimer.current);
+            copyTimer.current = setTimeout(() => setCopiedUrl(null), 2000);
+        } catch (error) {
+            console.error("Could not copy job URL:", error);
+        }
+    };
 
     return (
         <div className="min-h-screen flex flex-col bg-[#0D163F]">
@@ -1849,8 +1936,9 @@ export default function UpworkJobsPage() {
                         <div className="w-full overflow-hidden">
                             <table className="w-full table-fixed border-collapse text-[11px]"><style>{`td,th{overflow:hidden;text-overflow:ellipsis;} .break-cell{white-space:normal;word-break:break-word;}`}</style>
                                 <colgroup>
-                                    <col className="w-[5%]" />
-                                    <col className="w-[5%]" />
+                                    <col className="w-[4%]" />
+                                    <col className="w-[8%]" />
+                                    <col className="w-[3%]" />
                                     <col className="w-[12%]" />
                                     <col className="w-[18%]" />
                                     <col className="w-[4%]" />
@@ -1877,6 +1965,9 @@ export default function UpworkJobsPage() {
                                             >
                                                 Status <span className="text-[10px]">{getSortIndicator("status")}</span>
                                             </button>
+                                        </th>
+                                        <th className={thClass}>
+                                            Preferred Qualifications
                                         </th>
                                         {/* <th className={thClass}>Elapsed</th> */}
                                         <th className={thClass}>
@@ -1960,7 +2051,7 @@ export default function UpworkJobsPage() {
                                 <tbody>
                                     {!hasSearched ? (
                                         <tr>
-                                            <td colSpan={15} className="py-12 text-center">
+                                            <td colSpan={16} className="py-12 text-center">
                                                 <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center mx-auto">
                                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-600">
                                                         <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
@@ -1972,7 +2063,7 @@ export default function UpworkJobsPage() {
                                         </tr>
                                     ) : loading ? (
                                         <tr>
-                                            <td colSpan={15} className="py-12 text-center">
+                                            <td colSpan={16} className="py-12 text-center">
                                                 <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto" />
                                                 <h3 className="mt-2 text-sm font-semibold text-gray-800">Searching Upwork...</h3>
                                                 <p className="text-gray-400 text-[12px] mt-1">Fetching latest opportunities.</p>
@@ -1980,7 +2071,7 @@ export default function UpworkJobsPage() {
                                         </tr>
                                     ) : jobs.length === 0 ? (
                                         <tr>
-                                            <td colSpan={15} className="py-12 text-center">
+                                            <td colSpan={16} className="py-12 text-center">
                                                 <h3 className="text-gray-800 text-sm font-semibold">No jobs found</h3>
                                                 <p className="text-gray-400 text-[12px] mt-1">Try searching another keyword.</p>
                                             </td>
@@ -2013,6 +2104,11 @@ export default function UpworkJobsPage() {
                                                             )}
                                                         </div>
                                                     </td>
+                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] text-gray-700">
+                                                        <div className="flex flex-col gap-1">
+                                                            {getPreferredQualificationText(job)}
+                                                        </div>
+                                                    </td>
 
                                                     <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] text-red-500 whitespace-normal">
                                                         {getElapsedTime(job.publishedDateTime)}
@@ -2028,9 +2124,19 @@ export default function UpworkJobsPage() {
 
                                                     <td className={cellClass}>
                                                         {jobUrl ? (
-                                                            <a href={jobUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-[11px] whitespace-nowrap">
-                                                                View Job
-                                                            </a>
+                                                            <div className="flex flex-col items-start gap-1 whitespace-nowrap text-[11px] font-medium">
+                                                                <a href={jobUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-[11px] whitespace-nowrap">
+                                                                    View Job
+                                                                </a>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleCopyUrl(jobUrl)}
+                                                                    className={copiedUrl === jobUrl ? "text-green-700" : "text-gray-600 hover:text-blue-600"}
+                                                                    title="Copy job URL"
+                                                                >
+                                                                    {copiedUrl === jobUrl ? "✓ Copied" : "Copy URL"}
+                                                                </button>
+                                                            </div>
                                                         ) : "-"}
                                                     </td>
 
@@ -2064,6 +2170,15 @@ export default function UpworkJobsPage() {
                                                             <span>Interviewing: {job.activity?.totalInvitedToInterview ?? 0}</span>
                                                             <span>Invites: {job.activity?.invitesSent ?? 0}</span>
                                                             <span>Unanswered: {job.activity?.totalUnansweredInvites ?? 0}</span>
+                                                            <span
+                                                                className={
+                                                                    (job.activity?.totalHired ?? 0) > 0
+                                                                        ? "inline-flex rounded-full bg-red-100 px-2 py-0.5 text-red-700 font-semibold"
+                                                                        : "text-gray-700"
+                                                                }
+                                                            >
+                                                                Hired: {job.activity?.totalHired ?? 0}
+                                                            </span>
                                                         </div>
                                                     </td>
 
