@@ -11,7 +11,7 @@
     "lint": "next lint",
 
     "storybook": "storybook dev -p 6006",
-    "storybook:build": "storybook build",
+    "build-storybook": "storybook build",
 
     "dev:all": "concurrently \"npm run dev\" \"npm run storybook\""
   },
