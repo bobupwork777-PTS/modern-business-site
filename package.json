@@ -2,12 +2,20 @@
   "name": "modern-business-site",
   "version": "0.1.0",
   "private": true,
+
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+
+    "lint": "next lint",
+
+    "storybook": "storybook dev -p 6006",
+    "storybook:build": "storybook build",
+
+    "dev:all": "concurrently \"npm run dev\" \"npm run storybook\""
   },
+
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "framer-motion": "^13.2.0",
@@ -21,14 +29,38 @@
     "recharts": "^3.10.1",
     "xlsx": "^0.18.5"
   },
+
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+
+    "typescript": "^5",
+
+    "tailwindcss": "^4",
+
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+
+    "storybook": "^10.6.1",
+    "@storybook/nextjs-vite": "^10.6.1",
+
+    "@storybook/addon-a11y": "^10.6.1",
+    "@storybook/addon-docs": "^10.6.1",
+    "@storybook/addon-vitest": "^10.6.1",
+
+    "@chromatic-com/storybook": "latest",
+
+    "vite": "latest",
+
+    "vitest": "^4",
+    "@vitest/browser-playwright": "^4",
+    "@vitest/coverage-v8": "^4",
+
+    "eslint-plugin-storybook": "^10.6.1",
+
+    "concurrently": "^9.1.2"
   }
 }
