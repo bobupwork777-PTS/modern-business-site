@@ -84,12 +84,8 @@ type SavedFilter = {
 const PAGE_SIZE = 50;
 const applicantOptions = [
     { value: "all", label: "Any applicants" },
-    { value: "0-4", label: "< 5" },
-    { value: "5-9", label: "5 - 10" },
-    { value: "10-14", label: "10 - 15" },
-    { value: "15-19", label: "15 - 20" },
-    { value: "20-49", label: "20 - 50" },
-    { value: "50-999999", label: "50+" }
+    { value: "0-50", label: "20 - 50" },
+    { value: "51-999999", label: "50+" }
 ];
 const postedTimeOptions = [
     { value: "all", label: "Any time" },
@@ -139,6 +135,23 @@ export default function UpworkJobsPage() {
     const [jobs, setJobs] = useState<Job[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
+    const searchAbortRef = useRef<AbortController | null>(null);
+    const [copiedDescriptionId, setCopiedDescriptionId] = useState<string | null>(null);
+
+    useEffect(() => {
+        return () => {
+            const controller = searchAbortRef.current;
+            searchAbortRef.current = null;
+            controller?.abort();
+        };
+    }, []);
+
+    function stopSearch() {
+        const controller = searchAbortRef.current;
+        searchAbortRef.current = null;
+        controller?.abort();
+        setLoading(false);
+    }
     const [error, setError] = useState("");
     const [hasSearched, setHasSearched] = useState(false);
     const [fixedPriceFirst, setFixedPriceFirst] = useState(false);
@@ -161,7 +174,7 @@ export default function UpworkJobsPage() {
     const [budgetMax, setBudgetMax] = useState("");
     const [paymentVerified, setPaymentVerified] = useState<PaymentFilter>("all");
     const [applicantRange, setApplicantRange] = useState("all");
-    const [postedDays, setPostedDays] = useState("all");
+    const [postedDays, setPostedDays] = useState("3");
     const [showAddOptionModal, setShowAddOptionModal] = useState(false);
     const [addOptionType, setAddOptionType] = useState<AddOptionType | null>(null);
     const [newOptionValue, setNewOptionValue] = useState("");
@@ -324,6 +337,10 @@ export default function UpworkJobsPage() {
 
         const prioritizePreviousClient = previousClientFirstOverride ?? previousClientFirst;
 
+        searchAbortRef.current?.abort();
+        const controller = new AbortController();
+        searchAbortRef.current = controller;
+
         try {
 
             setHasSearched(true);
@@ -384,6 +401,7 @@ export default function UpworkJobsPage() {
                     {
                         method: "GET",
                         cache: "no-store",
+                        signal: controller.signal,
                         headers: {
                             Accept:
                                 "application/json"
@@ -399,6 +417,11 @@ export default function UpworkJobsPage() {
                 ) || "";
 
             const raw = await response.text();
+
+            // Ignore canceled requests and responses superseded by a newer search.
+            if (controller.signal.aborted || searchAbortRef.current !== controller) {
+                return;
+            }
 
             let data:
                 any = {};
@@ -619,6 +642,9 @@ export default function UpworkJobsPage() {
             );
 
         } catch (err) {
+            if (controller.signal.aborted || searchAbortRef.current !== controller) {
+                return;
+            }
 
             console.error(
                 "Upwork Search Error:",
@@ -654,8 +680,10 @@ export default function UpworkJobsPage() {
             );
 
         } finally {
-
-            setLoading(false);
+            if (searchAbortRef.current === controller) {
+                searchAbortRef.current = null;
+                setLoading(false);
+            }
         }
     }
 
@@ -1088,16 +1116,20 @@ export default function UpworkJobsPage() {
             `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`,
             `Hired: ${job.activity?.totalHired ?? 0}`
         ].join(", ");
-        let skill = "Wix";
 
-        const title =
-            (job.title || "").toLowerCase();
+        let skill = "";
 
-        const description =
-            (job.description || "").toLowerCase();
+        const title = (job.title || "").toLowerCase();
+        const description = (job.description || "").toLowerCase();
 
 
         if (
+            title.includes("Wix") ||
+            description.includes("Wix")
+        ) {
+            skill = "Wix";
+        }
+        else if (
             title.includes("webflow") ||
             description.includes("webflow")
         ) {
@@ -1120,6 +1152,12 @@ export default function UpworkJobsPage() {
             description.includes("illustration")
         ) {
             skill = "Illustration";
+        }
+        else if (
+            title.includes("next.js") ||
+            description.includes("next.js")
+        ) {
+            skill = "next.js";
         }
         const analysisJob = {
             Skill: skill,
@@ -1195,38 +1233,38 @@ export default function UpworkJobsPage() {
             items.push(`Type: ${pq.contractorType}`);
         }
 
-        if (
-            pq.englishProficiency &&
-            pq.englishProficiency.toLowerCase() !== "any"
-        ) {
-            items.push(`English: ${pq.englishProficiency}`);
-        }
-        if (
-            pq.jobSuccessScore &&
-            pq.jobSuccessScore > 0
-        ) {
-            items.push(
-                `JSS: ${pq.jobSuccessScore}%`
-            );
-        }
-        if (
-            pq.minEarning &&
-            pq.minEarning !== "Any"
-        ) {
-            items.push(
-                `Earnings: ${pq.minEarning}`
-            );
-        }
+        // if (
+        //     pq.englishProficiency &&
+        //     pq.englishProficiency.toLowerCase() !== "any"
+        // ) {
+        items.push(`English: ${pq.englishProficiency}`);
+        // }
+        // if (
+        //     pq.jobSuccessScore &&
+        //     pq.jobSuccessScore > 0
+        // ) {
+        items.push(
+            `JSS: ${pq.jobSuccessScore}%`
+        );
+        // }
+        // if (
+        //     pq.minEarning &&
+        //     pq.minEarning !== "Any"
+        // ) {
+        items.push(
+            `Earnings: ${pq.minEarning}`
+        );
+        // }
 
 
-        if (
-            pq.hoursWorked &&
-            pq.hoursWorked > 0
-        ) {
-            items.push(
-                `Hours: ${pq.hoursWorked}+`
-            );
-        }
+        // if (
+        //     pq.hoursWorked &&
+        //     pq.hoursWorked > 0
+        // ) {
+        items.push(
+            `Hours: ${pq.hoursWorked}+`
+        );
+        // }
 
 
         if (pq.hasPortfolio) {
@@ -1896,7 +1934,7 @@ export default function UpworkJobsPage() {
                                         </div>
                                     </div>
 
-                                    <div className="flex min-w-[160px] flex-col gap-2">
+                                    <div className="flex min-w-[160px] flex-row items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -1904,13 +1942,32 @@ export default function UpworkJobsPage() {
                                                 searchJobs(1, "0");
                                             }}
                                             disabled={loading}
-                                            className="h-[42px] rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400 flex items-center justify-center gap-1.5"
+                                            className="flex h-[42px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
                                         >
                                             {loading ? (
-                                                <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Searching...</>
-                                            ) : <>Search Jobs <span>→</span></>}
+                                                <>
+                                                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                                                    Searching...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Search Jobs <span>→</span>
+                                                </>
+                                            )}
                                         </button>
+
+                                        {loading && (
+                                            <button
+                                                type="button"
+                                                onClick={stopSearch}
+                                                className="h-[42px] whitespace-nowrap rounded-lg bg-red-600 px-5 text-xs font-semibold text-white transition hover:bg-red-700"
+                                            >
+                                                Stop Search
+                                            </button>
+                                        )}
                                     </div>
+
+
                                 </div>
                             )}
                         {
@@ -2276,8 +2333,18 @@ font-semibold text-blue-700
                                         displayedJobs.map(job => {
                                             const verified = isVerified(job.client?.verificationStatus);
                                             const jobUrl = getJobUrl(job);
+                                            const hasHired = (job.activity?.totalHired ?? 0) > 0;
+                                            const hasManyProposals = (job.totalApplicants ?? 0) >= 50;
                                             return (
-                                                <tr key={job.id} className="border-t border-gray-100 hover:bg-blue-50/40 transition">
+                                                <tr
+                                                    key={job.id}
+                                                    className={`border-t border-gray-100 transition ${hasHired
+                                                        ? "bg-red-100 hover:bg-red-200"
+                                                        : hasManyProposals
+                                                            ? "bg-yellow-100 hover:bg-yellow-200"
+                                                            : "hover:bg-blue-50/40"
+                                                        }`}
+                                                >
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col items-start gap-1">
                                                             {job.applied && (
@@ -2330,6 +2397,15 @@ font-semibold text-blue-700
                                                                             await navigator.clipboard.writeText(
                                                                                 job.description ?? ""
                                                                             );
+
+                                                                            const jobId = String(job.id);
+                                                                            setCopiedDescriptionId(jobId);
+
+                                                                            window.setTimeout(() => {
+                                                                                setCopiedDescriptionId(current =>
+                                                                                    current === jobId ? null : current
+                                                                                );
+                                                                            }, 2000);
                                                                         } catch (error) {
                                                                             console.error("Copy failed:", error);
                                                                             alert("Unable to copy the description.");
@@ -2337,7 +2413,9 @@ font-semibold text-blue-700
                                                                     }}
                                                                     className="mt-1 text-[11px] font-medium text-blue-600 hover:underline"
                                                                 >
-                                                                    Copy Description
+                                                                    {copiedDescriptionId === String(job.id)
+                                                                        ? "✓ Copied"
+                                                                        : "Copy Description"}
                                                                 </button>
                                                             </>
                                                         ) : (
@@ -2395,8 +2473,8 @@ font-semibold text-blue-700
                                                             <span>Unanswered: {job.activity?.totalUnansweredInvites ?? 0}</span>
                                                             <span
                                                                 className={
-                                                                    (job.activity?.totalHired ?? 0) > 0
-                                                                        ? "inline-flex rounded-full bg-red-100 px-2 py-0.5 text-red-700 font-semibold"
+                                                                    hasHired
+                                                                        ? "font-semibold text-red-700"
                                                                         : "text-gray-700"
                                                                 }
                                                             >
