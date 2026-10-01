@@ -136,6 +136,7 @@ export default function UpworkJobsPage() {
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
     const searchAbortRef = useRef<AbortController | null>(null);
+    const [copiedDescriptionId, setCopiedDescriptionId] = useState<string | null>(null);
 
     useEffect(() => {
         return () => {
@@ -1236,23 +1237,23 @@ export default function UpworkJobsPage() {
         //     pq.englishProficiency &&
         //     pq.englishProficiency.toLowerCase() !== "any"
         // ) {
-            items.push(`English: ${pq.englishProficiency}`);
+        items.push(`English: ${pq.englishProficiency}`);
         // }
         // if (
         //     pq.jobSuccessScore &&
         //     pq.jobSuccessScore > 0
         // ) {
-            items.push(
-                `JSS: ${pq.jobSuccessScore}%`
-            );
+        items.push(
+            `JSS: ${pq.jobSuccessScore}%`
+        );
         // }
         // if (
         //     pq.minEarning &&
         //     pq.minEarning !== "Any"
         // ) {
-            items.push(
-                `Earnings: ${pq.minEarning}`
-            );
+        items.push(
+            `Earnings: ${pq.minEarning}`
+        );
         // }
 
 
@@ -1260,9 +1261,9 @@ export default function UpworkJobsPage() {
         //     pq.hoursWorked &&
         //     pq.hoursWorked > 0
         // ) {
-            items.push(
-                `Hours: ${pq.hoursWorked}+`
-            );
+        items.push(
+            `Hours: ${pq.hoursWorked}+`
+        );
         // }
 
 
@@ -1933,7 +1934,7 @@ export default function UpworkJobsPage() {
                                         </div>
                                     </div>
 
-                                    <div className="flex min-w-[160px] flex-col gap-2">
+                                    <div className="flex min-w-[160px] flex-row items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -1941,23 +1942,32 @@ export default function UpworkJobsPage() {
                                                 searchJobs(1, "0");
                                             }}
                                             disabled={loading}
-                                            className="h-[42px] rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400 flex items-center justify-center gap-1.5"
+                                            className="flex h-[42px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
                                         >
                                             {loading ? (
-                                                <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Searching...</>
-                                            ) : <>Search Jobs <span>→</span></>}
+                                                <>
+                                                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                                                    Searching...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Search Jobs <span>→</span>
+                                                </>
+                                            )}
                                         </button>
 
                                         {loading && (
                                             <button
                                                 type="button"
                                                 onClick={stopSearch}
-                                                className="h-[36px] rounded-lg bg-red-600 px-5 text-xs font-semibold text-white transition hover:bg-red-700"
+                                                className="h-[42px] whitespace-nowrap rounded-lg bg-red-600 px-5 text-xs font-semibold text-white transition hover:bg-red-700"
                                             >
                                                 Stop Search
                                             </button>
                                         )}
                                     </div>
+
+
                                 </div>
                             )}
                         {
@@ -2328,13 +2338,12 @@ font-semibold text-blue-700
                                             return (
                                                 <tr
                                                     key={job.id}
-                                                    className={`border-t border-gray-100 transition ${
-                                                        hasHired
-                                                            ? "bg-red-100 hover:bg-red-200"
-                                                            : hasManyProposals
-                                                                ? "bg-yellow-100 hover:bg-yellow-200"
-                                                                : "hover:bg-blue-50/40"
-                                                    }`}
+                                                    className={`border-t border-gray-100 transition ${hasHired
+                                                        ? "bg-red-100 hover:bg-red-200"
+                                                        : hasManyProposals
+                                                            ? "bg-yellow-100 hover:bg-yellow-200"
+                                                            : "hover:bg-blue-50/40"
+                                                        }`}
                                                 >
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col items-start gap-1">
@@ -2388,6 +2397,15 @@ font-semibold text-blue-700
                                                                             await navigator.clipboard.writeText(
                                                                                 job.description ?? ""
                                                                             );
+
+                                                                            const jobId = String(job.id);
+                                                                            setCopiedDescriptionId(jobId);
+
+                                                                            window.setTimeout(() => {
+                                                                                setCopiedDescriptionId(current =>
+                                                                                    current === jobId ? null : current
+                                                                                );
+                                                                            }, 2000);
                                                                         } catch (error) {
                                                                             console.error("Copy failed:", error);
                                                                             alert("Unable to copy the description.");
@@ -2395,7 +2413,9 @@ font-semibold text-blue-700
                                                                     }}
                                                                     className="mt-1 text-[11px] font-medium text-blue-600 hover:underline"
                                                                 >
-                                                                    Copy Description
+                                                                    {copiedDescriptionId === String(job.id)
+                                                                        ? "✓ Copied"
+                                                                        : "Copy Description"}
                                                                 </button>
                                                             </>
                                                         ) : (
