@@ -48,9 +48,9 @@ const enabled = (value: unknown) => value === true || value === 1 ||
 
   (typeof value === "string" && ["true", "1"].includes(value.trim().toLowerCase()));
 
-const debugEnabled = () => process.env.FREELANCER_DEBUG === "true" ||
+// const debugEnabled = () => process.env.FREELANCER_DEBUG === "true" ||
 
-  (process.env.NODE_ENV === "development" && process.env.FREELANCER_DEBUG !== "false");
+//   (process.env.NODE_ENV === "development" && process.env.FREELANCER_DEBUG !== "false");
 
 const record = (v: unknown): Raw => v && typeof v === "object" && !Array.isArray(v) ? v as Raw : {};
 
@@ -184,34 +184,29 @@ async function getPublicClient(project: Raw): Promise<PublicClient | null> {
 
 }
 
-async function freelancerGet(path: string, params: URLSearchParams, token: string) {
-
-  const res = await fetch(`${BASE}${path}?${params}`, {
-
-    headers: { "freelancer-oauth-v1": token, Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(20000)
-
+async function freelancerGet(
+  path: string,
+  params: URLSearchParams,
+  token: string
+) {
+  const res = await fetch(`${BASE}${path}?${params.toString()}`, {
+    headers: {
+      "freelancer-oauth-v1": token,
+      Accept: "application/json"
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(20000)
   });
 
   const body = await res.json();
 
-  if (debugEnabled()) {
-
-    // Log response data only. Never log the OAuth token or request headers.
-
-    const query: Record<string, string | string[]> = {};
-
-    params.forEach((_, key) => { const values = params.getAll(key); query[key] = values.length === 1 ? values[0] : values; });
-
-    const entry = { path, params: query, status: res.status, body };
-
-    console.dir({ freelancerApiResponse: entry }, { depth: null });
-
+  if (!res.ok || body.status === "error") {
+    throw new Error(
+      body?.message || `Freelancer API returned ${res.status}`
+    );
   }
 
-  if (!res.ok || body.status === "error") throw new Error(body?.message || `Freelancer API returned ${res.status}`);
-
   return body.result || {};
-
 }
 
 export async function GET(req: NextRequest) {
@@ -268,7 +263,7 @@ export async function GET(req: NextRequest) {
 
         users = { ...users, ...userMap(details.users) };
 
-      } catch {}
+      } catch { }
 
     }
 
@@ -336,7 +331,7 @@ export async function GET(req: NextRequest) {
 
         if (res.ok) (await res.json()).results?.forEach((r: any) => r.client && localClients.set(r.url, r.client));
 
-      } catch {}
+      } catch { }
 
     }
 

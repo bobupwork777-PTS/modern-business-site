@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import SearchOptionsModal, {type SearchOptionChange,} from "../../components/SearchOptionsModal";
+import SearchOptionsModal, { type SearchOptionChange, } from "../../components/SearchOptionsModal";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import * as XLSX from "xlsx";
@@ -185,6 +185,8 @@ export default function UpworkJobsPage() {
     const [selectedSavedFilter, setSelectedSavedFilter] = useState("");
     const [showSaveFilterModal, setShowSaveFilterModal] = useState(false);
     const [newFilterName, setNewFilterName] = useState("");
+
+    const [exporting, setExporting] = useState(false);
 
     const exportColumns = [
         { key: "status", label: "Status" },
@@ -1307,120 +1309,232 @@ export default function UpworkJobsPage() {
     }
 
 
-    function exportToExcel() {
+    async function exportToExcel() {
+        if (exporting || !selectedExportColumns.length) return;
 
-        const data = displayedJobs.map(job => {
+        setExporting(true);
 
-            const row: any = {};
-
-            selectedExportColumns.forEach(column => {
-
-                switch (column) {
-
-                    case "status":
-                        row.Status = getStatusText(job);
-                        break;
-
-                    case "preferredQualifications":
-                        row["Preferred Qualifications"] =
-                            getPreferredQualificationText(job)
-                                .toString()
-                                .replace(/,/g, "\n");
-                        break;
-
-                    case "elapsed":
-                        row.Elapsed = getElapsedTime(job.publishedDateTime);
-                        break;
-
-                    case "title":
-                        row["Job Title"] = job.title || "";
-                        break;
-
-                    case "description":
-                        row.Description = job.description || "";
-                        break;
-
-                    case "url":
-                        row.URL = getJobUrl(job);
-                        break;
-
-                    case "country":
-                        row.Country = job.client?.location?.country || "";
-                        break;
-
-                    case "client":
-                        row.Client =
-                            `${job.client?.totalPostedJobs ?? 0} jobs posted | ${job.client?.totalSpent?.displayValue || "$0"} spent`;
-                        break;
-
-                    // case "memberSince":
-                    //     row["Member Since"] = formatMemberSince(job.client?.memberSinceDateTime);
-                    //     break;
-
-                    case "feedback":
-                        row.Feedback = job.client?.totalFeedback ?? 0;
-                        break;
-
-                    case "applicants":
-                        row.Applicants = job.totalApplicants ?? 0;
-                        break;
-
-                    case "verified":
-                        row.Verified = isVerified(job.client?.verificationStatus)
-                            ? "Verified"
-                            : "Unverified";
-                        break;
-
-                    case "budget":
-                        row.Budget = getBudget(job);
-                        break;
-
-                    case "published":
-                        row.Published = formatDate(job.publishedDateTime);
-                        break;
-
-                    case "activity":
-                        row.Activity =
-                            `Proposals: ${getProposalRange(job.totalApplicants)}, Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}, Invites: ${job.activity?.invitesSent ?? 0}`;
-                        break;
-                }
-
+        try {
+            const params = new URLSearchParams({
+                q:
+                    searchMode === "quick" || searchMode === "manual"
+                        ? search.trim()
+                        : "",
+                first: String(PAGE_SIZE),
+                after: "0"
             });
 
-            return row;
-        });
+            if (selectedCountries.length) {
+                params.set("countries", selectedCountries.join(","));
+            }
 
-        const worksheet = XLSX.utils.json_to_sheet(data);
-        const workbook = XLSX.utils.book_new();
+            if (selectedSkills.length) {
+                params.set("skills", selectedSkills.join(","));
+            }
 
-        XLSX.utils.book_append_sheet(
-            workbook,
-            worksheet,
-            "Jobs"
-        );
+            if (budgetMin.trim()) {
+                params.set("budgetMin", budgetMin.trim());
+            }
 
+            if (budgetMax.trim()) {
+                params.set("budgetMax", budgetMax.trim());
+            }
 
-        const now = new Date();
+            if (paymentVerified !== "all") {
+                params.set("paymentVerified", paymentVerified);
+            }
 
-        const day = String(now.getDate()).padStart(2, "0");
-        const month = String(now.getMonth() + 1).padStart(2, "0");
-        const year = now.getFullYear();
+            if (applicantRange !== "all") {
+                params.set("applicants", applicantRange);
+            }
 
-        const hours = String(now.getHours()).padStart(2, "0");
-        const minutes = String(now.getMinutes()).padStart(2, "0");
+            if (postedDays !== "all") {
+                params.set("postedDays", postedDays);
+            }
 
-        const skillsName = selectedSkills.length
-            ? selectedSkills.join("-").toLowerCase()
-            : "all-skills";
+            if (previousClientFirst) {
+                params.set("previousClient", "true");
+            }
 
-        const fileName = `${day}-${month}-${year}-${skillsName}-${hours}:${minutes}.xlsx`;
+            const allJobs: Job[] = [];
+            const seenJobIds = new Set<string>();
+            const visitedCursors = new Set<string>();
 
-        XLSX.writeFile(
-            workbook,
-            fileName
-        );
+            let cursor = "0";
 
-        setShowExportModal(false);
+            while (true) {
+                if (visitedCursors.has(cursor)) {
+                    throw new Error("Pagination repeated. Export stopped.");
+                }
+
+                visitedCursors.add(cursor);
+                params.set("after", cursor);
+
+                const response = await fetch(
+                    `/api/upwork/jobs?${params.toString()}`,
+                    {
+                        method: "GET",
+                        cache: "no-store",
+                        headers: { Accept: "application/json" }
+                    }
+                );
+
+                const result = await response.json();
+
+                if (
+                    !response.ok ||
+                    result.success === false ||
+                    result.error ||
+                    result.reauthRequired === true
+                ) {
+                    throw new Error(
+                        typeof result.error === "string"
+                            ? result.error
+                            : "Unable to fetch all jobs for export."
+                    );
+                }
+
+                if (!Array.isArray(result.jobs)) {
+                    throw new Error("The API returned an invalid jobs list.");
+                }
+
+                for (const job of result.jobs as Job[]) {
+                    const id = String(job.id);
+
+                    if (!seenJobIds.has(id)) {
+                        seenJobIds.add(id);
+                        allJobs.push(job);
+                    }
+                }
+
+                if (result.pageInfo?.hasNextPage !== true) break;
+
+                const nextCursor = result.pageInfo?.endCursor;
+
+                if (nextCursor == null || String(nextCursor) === "") {
+                    throw new Error("The API did not return the next page cursor.");
+                }
+
+                if (result.jobs.length === 0) {
+                    throw new Error(
+                        "The API returned an empty page before completion."
+                    );
+                }
+
+                cursor = String(nextCursor);
+            }
+
+            if (!allJobs.length) {
+                throw new Error("No jobs available to export.");
+            }
+
+            const data = allJobs.map(job => {
+                const row: Record<string, string | number> = {};
+
+                selectedExportColumns.forEach(column => {
+                    switch (column) {
+                        case "status":
+                            row.Status = getStatusText(job);
+                            break;
+
+                        case "preferredQualifications":
+                            row["Preferred Qualifications"] =
+                                getPreferredQualificationText(job)
+                                    .toString()
+                                    .replace(/,/g, "\n");
+                            break;
+
+                        case "elapsed":
+                            row.Elapsed = getElapsedTime(job.publishedDateTime);
+                            break;
+
+                        case "title":
+                            row["Job Title"] = job.title || "";
+                            break;
+
+                        case "description":
+                            row.Description = job.description || "";
+                            break;
+
+                        case "url":
+                            row.URL = getJobUrl(job);
+                            break;
+
+                        case "country":
+                            row.Country = job.client?.location?.country || "";
+                            break;
+
+                        case "client":
+                            row.Client =
+                                `${job.client?.totalPostedJobs ?? 0} jobs posted | ${job.client?.totalSpent?.displayValue || "$0"} spent`;
+                            break;
+
+                        case "feedback":
+                            row.Feedback = job.client?.totalFeedback ?? 0;
+                            break;
+
+                        case "applicants":
+                            row.Applicants = job.totalApplicants ?? 0;
+                            break;
+
+                        case "verified":
+                            row.Verified = isVerified(job.client?.verificationStatus)
+                                ? "Verified"
+                                : "Unverified";
+                            break;
+
+                        case "budget":
+                            row.Budget = getBudget(job);
+                            break;
+
+                        case "published":
+                            row.Published = formatDate(job.publishedDateTime);
+                            break;
+
+                        case "activity":
+                            row.Activity =
+                                `Proposals: ${getProposalRange(job.totalApplicants)}, Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}, Invites: ${job.activity?.invitesSent ?? 0}`;
+                            break;
+                    }
+                });
+
+                return row;
+            });
+
+            const worksheet = XLSX.utils.json_to_sheet(data);
+            const workbook = XLSX.utils.book_new();
+
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Jobs");
+
+            const now = new Date();
+            const day = String(now.getDate()).padStart(2, "0");
+            const month = String(now.getMonth() + 1).padStart(2, "0");
+            const year = now.getFullYear();
+            const hours = String(now.getHours()).padStart(2, "0");
+            const minutes = String(now.getMinutes()).padStart(2, "0");
+
+            const skillsName = (
+                selectedSkills.length
+                    ? selectedSkills.join("-").toLowerCase()
+                    : "all-skills"
+            ).replace(/[<>:"/\\|?*\x00-\x1F]/g, "-");
+
+            const fileName =
+                `${day}-${month}-${year}-${skillsName}-${hours}-${minutes}.xlsx`;
+
+            XLSX.writeFile(workbook, fileName);
+            setShowExportModal(false);
+        } catch (error) {
+            console.error("EXCEL EXPORT ERROR:", error);
+
+            alert(
+                error instanceof Error
+                    ? error.message
+                    : "Unable to export jobs."
+            );
+        } finally {
+            setExporting(false);
+        }
     }
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -2684,10 +2798,21 @@ font-semibold text-blue-700
                         <button
                             type="button"
                             onClick={exportToExcel}
-                            disabled={!selectedExportColumns.length}
-                            className="mt-5 w-full rounded-lg bg-blue-600 py-2 font-semibold text-white disabled:bg-gray-300"
+                            disabled={exporting || !selectedExportColumns.length}
+                            aria-busy={exporting}
+                            className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-2 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                         >
-                            Export Selected Columns
+                            {exporting ? (
+                                <>
+                                    <span
+                                        aria-hidden="true"
+                                        className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                                    />
+                                    Exporting all jobs...
+                                </>
+                            ) : (
+                                "Export Selected Columns"
+                            )}
                         </button>
                     </div>
                 </div>
