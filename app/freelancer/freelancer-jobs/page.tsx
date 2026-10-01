@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import SearchOptionsModal, { type SearchOptionChange, } from "../../../components/SearchOptionsModal";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import * as XLSX from "xlsx";
+
+type ProjectBadgeFlag = boolean | number | string | null | undefined;
+
+type ProjectUpgradeFlags = Record<string, ProjectBadgeFlag>;
 
 type Job = {
     id: string;
@@ -15,6 +20,25 @@ type Job = {
     applied?: boolean;
     premium?: boolean;
     isFeatured?: boolean;
+    isRecruiter?: ProjectBadgeFlag;
+    isNDA?: ProjectBadgeFlag;
+    isSealed?: ProjectBadgeFlag;
+    isUrgent?: ProjectBadgeFlag;
+    isPrivate?: ProjectBadgeFlag;
+    isFullTime?: ProjectBadgeFlag;
+    isIPAgreement?: ProjectBadgeFlag;
+    recruiter?: ProjectBadgeFlag;
+    featured?: ProjectBadgeFlag;
+    NDA?: ProjectBadgeFlag;
+    nda?: ProjectBadgeFlag;
+    sealed?: ProjectBadgeFlag;
+    urgent?: ProjectBadgeFlag;
+    nonpublic?: ProjectBadgeFlag;
+    fulltime?: ProjectBadgeFlag;
+    assisted?: ProjectBadgeFlag;
+    ip_contract?: ProjectBadgeFlag;
+    ip_agreement?: ProjectBadgeFlag;
+    upgrades?: ProjectUpgradeFlags;
     isPreviousClient?: boolean;
     freelancerClientRelation?: {
         companyRid?: string;
@@ -26,33 +50,70 @@ type Job = {
     createdDateTime?: string;
     publishedDateTime?: string;
     totalApplicants?: number;
+    bidCount?: number;
+    averageBid?: number;
+    averageBidDisplay?: string;
+    projectStatus?: string;
+    currency?: string;
+    rawProject?: Record<string, unknown>;
+    rawClient?: Record<string, unknown> | null;
     amount?: { displayValue?: string; currency?: string };
     hourlyBudgetMin?: { displayValue?: string; currency?: string };
     hourlyBudgetMax?: { displayValue?: string; currency?: string };
     client?: {
         totalFeedback?: number;
         totalReviews?: number;
+        totalHires?: number;
+        totalPostedJobs?: number;
         verificationStatus?: string;
         memberSinceDateTime?: string;
         companyRid?: string;
         edcUserId?: string;
+        totalSpent?: { displayValue?: string; currency?: string };
         location?: { country?: string; city?: string; timezone?: string };
+    };
+    activity?: {
+        lastClientActivity?: string;
+        invitesSent?: number;
+        totalInvitedToInterview?: number;
+        totalHired?: number;
+        totalUnansweredInvites?: number;
+        totalOffered?: number;
+        totalRecommended?: number;
+    };
+    preferredQualifications?: {
+        contractorType?: string | null;
+        englishProficiency?: string | null;
+        hasPortfolio?: boolean;
+        hoursWorked?: number;
+        jobSuccessScore?: number | null;
+        minEarning?: string | null;
+        risingTalent?: boolean;
+        location?: { country?: string | null; city?: string | null; } | string | null;
     };
 };
 
 type AIReport = { relevant: boolean; proposal?: string; reason?: string; error?: string };
 type PageInfo = { endCursor: string | null; hasNextPage: boolean };
-type AddOptionType = "country" | "skill";
-type SortColumn = "status" | "elapsed" | "country" | "feedback" | "applicants" | "proposals" | "verified" | "published";
+type PaymentFilter = "all" | "verified" | "unverified";
+type SortColumn = "status" | "preferredAttributes" | "elapsed" | "country" | "feedback" | "applicants" | "proposals" | "verified" | "budget" | "published" | "averageBid" | "memberSince";
 type SortDirection = "desc" | "asc";
+type SavedFilter = {
+    _id?: string;
+    id: number;
+    name: string;
+    countries: string[];
+    skills: string[];
+    paymentVerified: PaymentFilter;
+    applicantRange: string;
+    postedDays: string;
+    search: string;
+};
 
 const PAGE_SIZE = 50;
 const applicantOptions = [
     { value: "all", label: "Any applicants" },
-    { value: "0-4", label: "< 5" },
-    { value: "5-9", label: "5 - 10" },
-    { value: "10-14", label: "10 - 15" },
-    { value: "15-19", label: "15 - 20" },
+    { value: "0-19", label: "0 - 20" },
     { value: "20-49", label: "20 - 50" },
     { value: "50-999999", label: "50+" }
 ];
@@ -82,32 +143,44 @@ const SKILL_GROUPS = [
     ["wix", "Velo", "wix studio"],
     ["relume", "Finsweet", "webflow"],
     ["GHL", "Go High Level"]
-];
+]
 
-
-
-function sortByCustomOrder(items: string[], order: string[]) {
-    return [...items].sort((a, b) => {
-        const aIndex = order.indexOf(a);
-        const bIndex = order.indexOf(b);
-
-        if (aIndex === -1) return 1;
-        if (bIndex === -1) return -1;
-
-        return aIndex - bIndex;
-    });
-}
 
 export default function FreelancerJobsPage() {
+
+    const [filterCollapsed, setFilterCollapsed] = useState(false);
     const [search, setSearch] = useState("");
     const [searchMode, setSearchMode] = useState<"manual" | "quick" | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
+    const searchAbortRef = useRef<AbortController | null>(null);
+    const [copiedDescriptionId, setCopiedDescriptionId] = useState<string | null>(null);
+    const descriptionCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const analysisAbortRef = useRef<AbortController | null>(null);
+
+    useEffect(() => {
+        return () => {
+            const controller = searchAbortRef.current;
+            searchAbortRef.current = null;
+            controller?.abort();
+            analysisAbortRef.current?.abort();
+            if (copyTimer.current) clearTimeout(copyTimer.current);
+            if (descriptionCopyTimer.current) clearTimeout(descriptionCopyTimer.current);
+        };
+    }, []);
+
+    function stopSearch() {
+        const controller = searchAbortRef.current;
+        searchAbortRef.current = null;
+        controller?.abort();
+        setLoading(false);
+    }
     const [error, setError] = useState("");
     const [hasSearched, setHasSearched] = useState(false);
     const [fixedPriceFirst, setFixedPriceFirst] = useState(false);
     const [hourlyPriceFirst, setHourlyPriceFirst] = useState(false);
+    const [previousClientFirst, setPreviousClientFirst] = useState(false);
     const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -121,31 +194,35 @@ export default function FreelancerJobsPage() {
     const [countryOptions, setCountryOptions] = useState<string[]>([]);
     const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
     const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-    const [budgetMin, setBudgetMin] = useState("");
-    const [budgetMax, setBudgetMax] = useState("");
+    const [paymentVerified, setPaymentVerified] = useState<PaymentFilter>("all");
     const [applicantRange, setApplicantRange] = useState("all");
-    const [postedDays, setPostedDays] = useState("all");
+    const [postedDays, setPostedDays] = useState("3");
     const [showAddOptionModal, setShowAddOptionModal] = useState(false);
-    const [addOptionType, setAddOptionType] = useState<AddOptionType | null>(null);
-    const [newOptionValue, setNewOptionValue] = useState("");
-    const [addOptionError, setAddOptionError] = useState("");
     const [queuedJobIds, setQueuedJobIds] = useState<string[]>([]);
     const [optionsLoading, setOptionsLoading] = useState(true);
-    const [optionSaving, setOptionSaving] = useState(false);
     const [queueLoadingIds, setQueueLoadingIds] = useState<string[]>([]);
     const [showExportModal, setShowExportModal] = useState(false);
+    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+    const [selectedSavedFilter, setSelectedSavedFilter] = useState("");
+    const [showSaveFilterModal, setShowSaveFilterModal] = useState(false);
+    const [newFilterName, setNewFilterName] = useState("");
 
     const exportColumns = [
         { key: "status", label: "Status" },
+        { key: "preferredQualifications", label: "Preferred Qualifications" },
         { key: "elapsed", label: "Elapsed" },
         { key: "title", label: "Job Title" },
         { key: "description", label: "Description" },
         { key: "url", label: "URL" },
-        { key: "country", label: "Client Country" },
+        { key: "country", label: "Country" },
         { key: "client", label: "Client" },
         { key: "published", label: "Published" },
+        { key: "activity", label: "Activity" },
         { key: "feedback", label: "Feedback" },
-        { key: "applicants", label: "Applicants" },
+        { key: "applicants", label: "Bids" },
+        { key: "averageBid", label: "Average Bid" },
+        { key: "memberSince", label: "Member Since" },
+        { key: "verified", label: "Verified" },
         { key: "budget", label: "Budget" }
     ];
 
@@ -158,9 +235,27 @@ export default function FreelancerJobsPage() {
 
     const allCountriesSelected = countryOptions.length > 0 && selectedCountries.length === countryOptions.length;
 
+    function loadSavedFilters() {
+        try {
+            const stored = JSON.parse(localStorage.getItem("phoenix:freelancer:saved-filters:v1") || "[]");
+            if (!Array.isArray(stored)) return;
+            setSavedFilters(stored.filter((filter: SavedFilter) =>
+                filter && typeof filter.id === "number" && typeof filter.name === "string" &&
+                Array.isArray(filter.countries) && filter.countries.every(item => typeof item === "string") &&
+                Array.isArray(filter.skills) && filter.skills.every(item => typeof item === "string") &&
+                ["all", "verified", "unverified"].includes(filter.paymentVerified) &&
+                typeof filter.applicantRange === "string" && typeof filter.postedDays === "string" &&
+                typeof filter.search === "string"
+            ));
+        } catch (error) {
+            console.error("LOAD SAVED FILTER ERROR", error);
+        }
+    }
+
     useEffect(() => {
         void loadSearchOptions();
         void loadQueue();
+        void loadSavedFilters();
     }, []);
 
     async function loadSearchOptions() {
@@ -171,7 +266,6 @@ export default function FreelancerJobsPage() {
                 fetch("/api/upwork/countries", { cache: "no-store" }),
                 fetch("/api/upwork/skills", { cache: "no-store" })
             ]);
-
             const [countriesData, skillsData] = await Promise.all([
                 countriesResponse.json(),
                 skillsResponse.json()
@@ -180,7 +274,6 @@ export default function FreelancerJobsPage() {
             if (!countriesResponse.ok || !countriesData.success) {
                 throw new Error(countriesData.error || "Unable to load countries");
             }
-
             if (!skillsResponse.ok || !skillsData.success) {
                 throw new Error(skillsData.error || "Unable to load skills");
             }
@@ -190,7 +283,6 @@ export default function FreelancerJobsPage() {
                     .map((item: any) => typeof item === "string" ? item : item?.name)
                     .filter(Boolean)
                 : [];
-
             const skills = Array.isArray(skillsData.skills)
                 ? skillsData.skills
                     .map((item: any) => typeof item === "string" ? item : item?.name)
@@ -213,13 +305,10 @@ export default function FreelancerJobsPage() {
             const response = await fetch("/api/freelancer/queue", {
                 cache: "no-store"
             });
-
             const data = await response.json();
-
             if (!response.ok || !data.success) {
                 throw new Error(data.error || "Unable to load queue");
             }
-
             setQueuedJobIds(
                 Array.isArray(data.queuedJobIds)
                     ? data.queuedJobIds.map(String)
@@ -234,20 +323,27 @@ export default function FreelancerJobsPage() {
         page = 1,
         cursor = "0",
         keyword?: string,
-        selectedSkillsOverride?: string[]
+        previousClientFirstOverride?: boolean,
+        selectedSkillsOverride?: string[],
+        filterOverride?: SavedFilter
     ) {
 
-        const searchKeyword =
-            (
-                keyword ??
-                search
-            ).trim() ||
+        const searchKeyword = (
+            keyword ??
+            search
+        ).trim() ||
             "";
 
         const activeKeyword =
-            searchMode === "quick" || searchMode === "manual"
+            keyword !== undefined || searchMode === "quick" || searchMode === "manual"
                 ? searchKeyword
                 : "";
+
+        const prioritizePreviousClient = previousClientFirstOverride ?? previousClientFirst;
+
+        searchAbortRef.current?.abort();
+        const controller = new AbortController();
+        searchAbortRef.current = controller;
 
         try {
 
@@ -257,25 +353,22 @@ export default function FreelancerJobsPage() {
 
             const params =
                 new URLSearchParams({
-                    q:
-                        activeKeyword,
+                    q: activeKeyword,
 
                     first:
                         String(
                             PAGE_SIZE
                         ),
 
-                    after:
-                        cursor
+                    after: cursor
                 });
 
-            if (selectedCountries.length) {
-
-                params.set(
-                    "countries",
-                    selectedCountries.join(",")
-                );
-
+            const activeCountries = filterOverride?.countries ?? selectedCountries;
+            const activePayment = filterOverride?.paymentVerified ?? paymentVerified;
+            const activeApplicants = filterOverride?.applicantRange ?? applicantRange;
+            const activePostedDays = filterOverride?.postedDays ?? postedDays;
+            if (activeCountries.length) {
+                params.set("countries", activeCountries.join(","));
             }
 
             const activeSkills =
@@ -283,68 +376,40 @@ export default function FreelancerJobsPage() {
                 selectedSkills;
 
             if (activeSkills.length) {
-                params.set(
-                    "skills",
-                    activeSkills.join(",")
-                );
-            }
-
-            if (budgetMin.trim()) {
-
-                params.set(
-                    "budgetMin",
-                    budgetMin.trim()
-                );
-            }
-
-            if (budgetMax.trim()) {
-
-                params.set(
-                    "budgetMax",
-                    budgetMax.trim()
-                );
+                params.set("skills", activeSkills.join(","));
             }
 
             if (
-                applicantRange !==
-                "all"
-            ) {
-
-                params.set(
-                    "applicants",
-                    applicantRange
-                );
+                activePayment !== "all") {
+                params.set("paymentVerified", activePayment);
             }
 
             if (
-                postedDays !==
-                "all"
-            ) {
-
-                params.set(
-                    "postedDays",
-                    postedDays
-                );
+                activeApplicants !== "all") {
+                params.set("applicants", activeApplicants);
             }
 
-            if (process.env.NODE_ENV === "development") {
-                console.groupCollapsed("[Freelancer browser → API] Search request");
-                console.log("URL:", `/api/freelancer/jobs?${params.toString()}`);
-                console.log("Parameters:", Object.fromEntries(params.entries()));
-                console.groupEnd();
+            if (activePostedDays !== "all") {
+                params.set("postedDays", activePostedDays);
             }
 
+            if (prioritizePreviousClient) {
+                params.set("previousClient", "true");
+            }
             const response =
                 await fetch(`/api/freelancer/jobs?${params.toString()}`,
                     {
                         method: "GET",
                         cache: "no-store",
+                        signal: controller.signal,
                         headers: {
                             Accept:
                                 "application/json"
                         }
                     }
                 );
+
+
 
             const contentType =
                 response.headers.get(
@@ -353,26 +418,23 @@ export default function FreelancerJobsPage() {
 
             const raw = await response.text();
 
-            let data:
-                any = {};
+            // Ignore canceled requests and responses superseded by a newer search.
+            if (controller.signal.aborted || searchAbortRef.current !== controller) {
+                return;
+            }
 
-            if (
-                raw.trim()
-                    .startsWith("<")
-            ) {
+            let data: any = {};
+
+            if (raw.trim().startsWith("<")) {
 
                 console.error("FREELANCER JOB API RETURNED HTML:",
                     {
-                        status:
-                            response.status,
-
+                        status: response.status,
                         contentType,
-
-                        preview:
-                            raw.slice(
-                                0,
-                                500
-                            )
+                        preview: raw.slice(
+                                            0,
+                                            500
+                                        )
                     }
                 );
 
@@ -447,15 +509,6 @@ export default function FreelancerJobsPage() {
                 return;
             }
 
-            if (process.env.NODE_ENV === "development") {
-                console.groupCollapsed("[Freelancer API → browser] Search response");
-                console.log("HTTP status:", response.status);
-                console.log("Content type:", contentType);
-                console.log("Full response:", data);
-                console.log("Jobs returned:", Array.isArray(data?.jobs) ? data.jobs.length : 0);
-                console.groupEnd();
-            }
-
             if (
                 !response.ok ||
                 !data?.success
@@ -505,6 +558,8 @@ export default function FreelancerJobsPage() {
                     message
                 );
             }
+
+            console.log("Freelancer jobs:", data.jobs);
 
             const nextInfo:
                 PageInfo = {
@@ -580,6 +635,9 @@ export default function FreelancerJobsPage() {
             );
 
         } catch (err) {
+            if (controller.signal.aborted || searchAbortRef.current !== controller) {
+                return;
+            }
 
             console.error(
                 "Freelancer Search Error:",
@@ -615,8 +673,10 @@ export default function FreelancerJobsPage() {
             );
 
         } finally {
-
-            setLoading(false);
+            if (searchAbortRef.current === controller) {
+                searchAbortRef.current = null;
+                setLoading(false);
+            }
         }
     }
 
@@ -632,6 +692,28 @@ export default function FreelancerJobsPage() {
         await searchJobs(previousPage, pageCursors[previousPage] ?? "0");
         window.scrollTo({ top: 0, behavior: "smooth" });
     }
+
+    function handleQuickSearch(keyword: string, skills: string[] = []) {
+
+        setSearchMode("quick");
+
+        setSearch(keyword);
+
+        setSelectedSkills(skills);
+
+        setPageCursors({
+            1: "0"
+        });
+
+        void searchJobs(
+            1,
+            "0",
+            keyword,
+            undefined,
+            skills
+        );
+    }
+
     function toggleCountry(country: string) {
         if (country === "ALL") {
             setSelectedCountries(allCountriesSelected ? [] : [...countryOptions]);
@@ -659,27 +741,64 @@ export default function FreelancerJobsPage() {
         );
     }
 
+    function saveCurrentFilter() {
+        const name = newFilterName.trim();
+        if (!name) { alert("Enter filter name"); return; }
+        try {
+            const filter: SavedFilter = {
+                id: Date.now(), name,
+                countries: [...selectedCountries], skills: [...selectedSkills],
+                paymentVerified, applicantRange, postedDays, search
+            };
+            const updated = [filter, ...savedFilters];
+            localStorage.setItem("phoenix:freelancer:saved-filters:v1", JSON.stringify(updated));
+            setSavedFilters(updated);
+            setSelectedSavedFilter(String(filter.id));
+            setNewFilterName("");
+            setShowSaveFilterModal(false);
+        } catch (error) {
+            alert(error instanceof Error ? error.message : "Unable to save filter");
+        }
+    }
+
+    function applySavedFilter(id: string) {
+        const filter = savedFilters.find(item => item._id === id || String(item.id) === id);
+        if (!filter) return;
+        setSelectedCountries([...filter.countries]);
+        setSelectedSkills([...filter.skills]);
+        setPaymentVerified(filter.paymentVerified);
+        setApplicantRange(filter.applicantRange);
+        setPostedDays(filter.postedDays);
+        setSearch(filter.search);
+        setSearchMode(filter.skills.length ? "quick" : "manual");
+        setPageCursors({ 1: "0" });
+        void searchJobs(1, "0", filter.search, undefined, filter.skills, filter);
+    }
+
     function clearFilters() {
+        setSelectedSavedFilter("");
+        setSearch("");
+        setSearchMode(null);
         setSelectedCountries([...countryOptions]);
         setSelectedSkills([]);
-        setBudgetMin("");
-        setBudgetMax("");
+        setPaymentVerified("all");
         setApplicantRange("all");
         setPostedDays("all");
         setFixedPriceFirst(false);
         setHourlyPriceFirst(false);
+        setPreviousClientFirst(false);
         setSortColumn(null);
         setSortDirection("desc");
     }
 
     const activeFilterCount =
         (selectedCountries.length > 0 && !allCountriesSelected ? 1 : 0) +
-        (budgetMin ? 1 : 0) +
-        (budgetMax ? 1 : 0) +
+        (paymentVerified !== "all" ? 1 : 0) +
         (applicantRange !== "all" ? 1 : 0) +
         (postedDays !== "all" ? 1 : 0) +
         (fixedPriceFirst ? 1 : 0) +
-        (hourlyPriceFirst ? 1 : 0);
+        (hourlyPriceFirst ? 1 : 0) +
+        (previousClientFirst ? 1 : 0);
 
     function handleFixedPriceFirstChange(checked: boolean) {
         setFixedPriceFirst(checked);
@@ -716,70 +835,47 @@ export default function FreelancerJobsPage() {
         return sortDirection === "desc" ? "↓" : "↑";
     }
 
+    async function handlePreviousClientFirstChange(checked: boolean) {
+        setPreviousClientFirst(checked);
+
+        if (hasSearched) {
+            setPageCursors({ 1: "0" });
+            await searchJobs(1, "0", undefined, checked);
+        }
+    }
+
     function openAddOptionModal() {
-        setAddOptionType(null);
-        setNewOptionValue("");
-        setAddOptionError("");
         setShowAddOptionModal(true);
     }
 
     function closeAddOptionModal() {
         setShowAddOptionModal(false);
-        setAddOptionType(null);
-        setNewOptionValue("");
-        setAddOptionError("");
     }
 
-    async function addCountryOrSkill() {
-        const value = newOptionValue.trim();
-
-        if (!addOptionType) {
-            setAddOptionError("Please choose Add Country or Add Skill.");
-            return;
-        }
-
-        if (!value) {
-            setAddOptionError(`Please enter a ${addOptionType}.`);
-            return;
-        }
-
-        try {
-            setOptionSaving(true);
-            setAddOptionError("");
-
-            const endpoint =
-                addOptionType === "country"
-                    ? "/api/upwork/countries"
-                    : "/api/upwork/skills";
-
-            const response = await fetch(endpoint, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ name: value })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok || !data.success) {
-                throw new Error(
-                    data.error ||
-                    `Unable to add ${addOptionType}`
-                );
+    async function handleSearchOptionChange(change: SearchOptionChange) {
+        const updateSelected = (current: string[]) => {
+            if (change.action === "delete") {
+                return current.filter(name => name !== change.name);
             }
-
-            await loadSearchOptions();
-            closeAddOptionModal();
-        } catch (err) {
-            console.error("ADD SEARCH OPTION ERROR:", err);
-            setAddOptionError(
-                err instanceof Error
-                    ? err.message
-                    : "Unable to save option"
-            );
-        } finally {
-            setOptionSaving(false);
+            if (change.action === "update") {
+                return [...new Set(current.map(name =>
+                    name === change.oldName ? change.name : name
+                ))];
+            }
+            return current;
+        };
+        const updateOptions = (current: string[]) => {
+            const values = change.action === "add"
+                ? [...new Set([...current, change.name])]
+                : updateSelected(current);
+            return [...values].sort((a, b) => a.localeCompare(b));
+        };
+        if (change.type === "country") {
+            setCountryOptions(updateOptions);
+            setSelectedCountries(updateSelected);
+        } else {
+            setSkillOptions(updateOptions);
+            setSelectedSkills(updateSelected);
         }
     }
 
@@ -794,9 +890,7 @@ export default function FreelancerJobsPage() {
 
     function formatMemberSince(value?: string) {
         if (!value) return "-";
-
         const date = new Date(value);
-
         if (Number.isNaN(date.getTime())) return "-";
 
         return date.toLocaleDateString("en-US", {
@@ -827,13 +921,14 @@ export default function FreelancerJobsPage() {
         const fixedAmount = job.amount?.displayValue;
 
         if (hourlyMin || hourlyMax) {
-            const range = hourlyMin && hourlyMax
-                ? `${hourlyMin} - ${hourlyMax}`
-                : hourlyMin || hourlyMax;
-            return `Hourly Price:\n${range}/hr`;
+            if (hourlyMin && hourlyMax) {
+                return `Hourly Price: ${hourlyMin} - ${hourlyMax}/hr`;
+            }
+            return `Hourly Price: ${hourlyMin || hourlyMax}/hr`;
         }
-
-        if (fixedAmount) return `Fixed Price:\n${fixedAmount}`;
+        if (fixedAmount) {
+            return `Fixed Price: ${fixedAmount}`;
+        }
         return "Not specified";
     }
 
@@ -844,7 +939,6 @@ export default function FreelancerJobsPage() {
             !job.hourlyBudgetMax?.displayValue
         );
     }
-
     function isHourlyPriceJob(job: Job) {
         return Boolean(
             job.hourlyBudgetMin?.displayValue ||
@@ -852,8 +946,121 @@ export default function FreelancerJobsPage() {
         );
     }
 
+    function isVerified(status?: string) {
+        if (!status) return false;
+        const value = status.toLowerCase();
+        if (value.includes("unverified")) return false;
+        return value.includes("verified") || value.includes("true");
+    }
+
+    function isEnabledBadgeFlag(value: ProjectBadgeFlag) {
+        return value === true || value === 1 ||
+            (typeof value === "string" && ["true", "1"].includes(value.trim().toLowerCase()));
+    }
+
+    function getProjectBadgeLabels(job: Job): string[] {
+        const labels = new Set<string>();
+
+        const aliases: Record<string, string> = {
+            recruiter: "Recruiter",
+            assisted: "Recruiter",
+            unpaidrecruiter: "Recruiter",
+            isrecruiter: "Recruiter",
+            ipcontract: "IP Agreement",
+            ipagreement: "IP Agreement",
+            isipagreement: "IP Agreement",
+            nda: "NDA",
+            isnda: "NDA",
+            sealed: "Sealed",
+            issealed: "Sealed",
+            urgent: "Urgent",
+            isurgent: "Urgent",
+            featured: "Featured",
+            isfeatured: "Featured",
+            nonpublic: "Private",
+            private: "Private",
+            isprivate: "Private",
+            fulltime: "Full Time",
+            isfulltime: "Full Time",
+            noncompete: "Non Compete",
+            pfonly: "Preferred Freelancer Only",
+            premium: "Premium",
+            enterprise: "Enterprise",
+            qualified: "Qualified",
+            projectmanagement: "Project Management",
+            successbundle: "Success Bundle"
+        };
+
+        const asRecord = (value: unknown): Record<string, unknown> =>
+            value && typeof value === "object" && !Array.isArray(value)
+                ? value as Record<string, unknown>
+                : {};
+
+        const isEnabled = (value: unknown) =>
+            value === true ||
+            value === 1 ||
+            (typeof value === "string" &&
+                ["true", "1"].includes(value.trim().toLowerCase()));
+
+        const addFlags = (
+            source: Record<string, unknown>,
+            allowUnknown: boolean
+        ) => {
+            Object.entries(source).forEach(([key, value]) => {
+                if (!isEnabled(value)) return;
+
+                const normalized = key.replace(/[_\s-]/g, "").toLowerCase();
+                const knownLabel = aliases[normalized];
+
+                if (knownLabel) {
+                    labels.add(knownLabel);
+                } else if (allowUnknown) {
+                    labels.add(
+                        key
+                            .replace(/([a-z])([A-Z])/g, "$1 $2")
+                            .replace(/[_-]+/g, " ")
+                            .replace(/\b\w/g, letter => letter.toUpperCase())
+                    );
+                }
+            });
+        };
+
+        const raw = asRecord(job.rawProject);
+
+        addFlags(asRecord(job), false);
+        addFlags(asRecord(job.upgrades), true);
+        addFlags(raw, false);
+        addFlags(asRecord(raw.upgrades), true);
+
+        return [...labels];
+    }
+
+    function getStatusLabels(job: Job) {
+        return [
+            ...(job.projectStatus ? [job.projectStatus] : []),
+            ...(job.applied ? ["Applied"] : []),
+            ...getProjectBadgeLabels(job),
+            ...(isPreviousClientJob(job) ? ["Previous Client"] : [])
+        ];
+    }
+
+    function getStatusBadgeClass(label: string) {
+        switch (label) {
+            case "Applied": return "bg-green-50 text-green-700";
+            case "Recruiter": return "bg-purple-600 text-white";
+            case "Featured": return "bg-amber-50 text-amber-700";
+            case "NDA": return "bg-blue-600 text-white";
+            case "Sealed": return "bg-sky-500 text-white";
+            case "Urgent": return "bg-red-50 text-red-700";
+            case "Private": return "bg-amber-400 text-gray-900";
+            case "IP Agreement": return "bg-pink-800 text-white";
+            case "Previous Client": return "bg-blue-50 text-blue-700";
+            default: return "bg-slate-100 text-slate-700";
+        }
+    }
+
     function isFeaturedJob(job: Job) {
-        return job.isFeatured === true || job.premium === true;
+        return getProjectBadgeLabels(job).includes("Featured");
     }
 
     function isPreviousClientJob(job: Job) {
@@ -861,23 +1068,20 @@ export default function FreelancerJobsPage() {
     }
 
     function getStatusText(job: Job) {
-        const statuses: string[] = [];
-        if (job.applied) statuses.push("Applied");
-        if (isFeaturedJob(job)) statuses.push("Featured");
-        if (isPreviousClientJob(job)) statuses.push("Previous Client");
+        const statuses = getStatusLabels(job);
         return statuses.length ? statuses.join(", ") : "N/A";
     }
 
     function getStatusSortValue(job: Job) {
-        let score = 0;
-        if (job.applied) score += 100;
-        if (isPreviousClientJob(job)) score += 10;
-        if (isFeaturedJob(job)) score += 1;
-        return score;
+        return (job.applied ? 100 : 0) + (isPreviousClientJob(job) ? 10 : 0) + getProjectBadgeLabels(job).length;
     }
 
     function compareText(a: string, b: string) {
         return a.localeCompare(b, undefined, { sensitivity: "base" });
+    }
+
+    function getJobCountry(job: Job) {
+        return job.projectCountry || job.client?.location?.country || "";
     }
 
     function getProposalRange(totalApplicants?: number) {
@@ -893,97 +1097,86 @@ export default function FreelancerJobsPage() {
 
     async function analyzeJob(job: Job) {
 
+        analysisAbortRef.current?.abort();
+        const controller = new AbortController();
+        analysisAbortRef.current = controller;
         setSelectedJob(job);
         setShowModal(true);
         setAnalyzing(true);
         setAiReport(null);
 
 
-        const activity = `Bids: ${getProposalRange(job.totalApplicants)}`;
-
+        const activity = [
+            `Proposals: ${getProposalRange(job.totalApplicants)}`,
+            `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
+            `Invites: ${job.activity?.invitesSent ?? 0}`,
+            `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`,
+            `Hired: ${job.activity?.totalHired ?? 0}`
+        ].join(", ");
 
         let skill = "";
 
-        const title =
-            (job.title || "").toLowerCase();
-
-        const description =
-            (job.description || "").toLowerCase();
+        const title = (job.title || "").toLowerCase();
+        const description = (job.description || "").toLowerCase();
 
 
         if (
+            title.includes("wix") ||
+            description.includes("wix")
+        ) {
+            skill = "Wix";
+        }
+        else if (
             title.includes("webflow") ||
             description.includes("webflow")
         ) {
             skill = "Webflow";
         }
-
         else if (
             title.includes("shopify") ||
             description.includes("shopify")
         ) {
             skill = "Shopify";
         }
-
         else if (
             title.includes("framer") ||
             description.includes("framer")
         ) {
             skill = "Framer";
         }
-
         else if (
             title.includes("illustration") ||
             description.includes("illustration")
         ) {
             skill = "Illustration";
         }
-
-
-
+        else if (
+            title.includes("next.js") ||
+            description.includes("next.js")
+        ) {
+            skill = "next.js";
+        }
         const analysisJob = {
-
             Skill: skill,
-
-            Title:
-                job.title ||
-                "Untitled Job",
-
-            Description:
-                job.description ||
-                "",
-
-            Budget:
-                getBudget(job),
-
-            Status:
-                getStatusText(job),
-
-            PublishedDate:
-                formatDate(
-                    job.publishedDateTime
-                ),
-
-            URL:
-                getJobUrl(job)
+            Title: job.title || "Untitled Job",
+            Description: job.description || "",
+            Budget: getBudget(job),
+            Status: getStatusText(job),
+            PublishedDate: formatDate(job.publishedDateTime),
+            Activity: activity,
+            URL: getJobUrl(job)
         };
 
-
-
         try {
-
-
             const response =
-                await fetch(
-                    "/api/analyze",
+                await fetch("/api/analyze",
                     {
+                        signal: controller.signal,
                         method: "POST",
-
                         headers: {
                             "Content-Type":
                                 "application/json"
                         },
-
                         body:
                             JSON.stringify({
                                 job: analysisJob
@@ -991,58 +1184,63 @@ export default function FreelancerJobsPage() {
                     }
                 );
 
-
-
-            const data =
-                await response.json();
-
-
-
+            const data = await response.json();
             if (!response.ok) {
-
                 throw new Error(
                     data.error ||
                     "AI analysis failed"
                 );
-
             }
-
-
-
-            setAiReport(data);
-
-
-
+            if (analysisAbortRef.current === controller && !controller.signal.aborted) setAiReport(data);
         }
         catch (err) {
-
-
-            console.error(
-                "Analyze error:",
-                err
-            );
-
-
+            if (controller.signal.aborted || analysisAbortRef.current !== controller) return;
+            console.error("Analyze error:", err);
             setAiReport({
-
                 relevant: false,
-
                 error:
                     "Unable to analyze this opportunity. Please try again."
-
             });
-
-
         }
         finally {
-
-            setAnalyzing(false);
-
+            if (analysisAbortRef.current === controller) {
+                analysisAbortRef.current = null;
+                setAnalyzing(false);
+            }
         }
+    }
 
+    function getFeedbackText(job: Job): string {
+        const rating = job.client?.totalFeedback;
+        const reviews = job.client?.totalReviews;
+        if (rating == null && reviews == null) return "N/A";
+        return `${rating == null ? "N/A" : rating.toFixed(1)} out of ${reviews == null ? "N/A" : reviews}`;
+    }
+
+    function getPreferredQualificationText(job: Job): string {
+        const items = getProjectBadgeLabels(job);
+        const pq = job.preferredQualifications;
+        if (!pq) return items.length ? items.join("\n") : "-";
+        if (pq.location) {
+            const location = typeof pq.location === "string" ? pq.location :
+                [pq.location.city, pq.location.country].filter(Boolean).join(", ");
+            if (location) items.push(`Location: ${location}`);
+        }
+        if (pq.contractorType) items.push(`Type: ${pq.contractorType}`);
+        if (pq.englishProficiency && pq.englishProficiency.trim().toLowerCase() !== "any")
+            items.push(`English: ${pq.englishProficiency}`);
+        if (pq.jobSuccessScore != null) items.push(`JSS: ${pq.jobSuccessScore}%`);
+        if (pq.minEarning && pq.minEarning.trim().toLowerCase() !== "any") items.push(`Earnings: ${pq.minEarning}`);
+        if (pq.hoursWorked != null) items.push(`Hours: ${pq.hoursWorked}+`);
+        if (pq.hasPortfolio) items.push("Portfolio Required");
+        if (pq.risingTalent) items.push("Rising Talent");
+        return items.length ? items.join("\n") : "-";
     }
 
     function closeModal() {
+        analysisAbortRef.current?.abort();
+        analysisAbortRef.current = null;
+        setAnalyzing(false);
         setShowModal(false);
         setSelectedJob(null);
         setAiReport(null);
@@ -1105,6 +1303,11 @@ export default function FreelancerJobsPage() {
                         row.Status = getStatusText(job);
                         break;
 
+                    case "preferredQualifications":
+                        row["Preferred Qualifications"] =
+                            getPreferredQualificationText(job);
+                        break;
+
                     case "elapsed":
                         row.Elapsed = getElapsedTime(job.publishedDateTime);
                         break;
@@ -1122,15 +1325,33 @@ export default function FreelancerJobsPage() {
                         break;
 
                     case "country":
-                        row["Client Country"] = job.client?.location?.country || "";
+                        row.Country = getJobCountry(job) || "";
+                        break;
+
+                    case "client":
+                        row.Client =
+                            `${job.client?.totalPostedJobs ?? 0} jobs posted | ${job.client?.totalSpent?.displayValue || "$0"} spent`;
+                        break;
+
+                    case "memberSince":
+                        row["Member Since"] = formatMemberSince(job.client?.memberSinceDateTime);
+                        break;
+                    case "averageBid":
+                        row["Average Bid"] = job.averageBidDisplay || "N/A";
                         break;
 
                     case "feedback":
-                        row.Feedback = job.client?.totalFeedback ?? "-";
+                        row.Feedback = getFeedbackText(job);
                         break;
 
                     case "applicants":
-                        row.Applicants = job.totalApplicants ?? 0;
+                        row.Bids = job.bidCount ?? job.totalApplicants ?? "N/A";
+                        break;
+
+                    case "verified":
+                        row.Verified = isVerified(job.client?.verificationStatus)
+                            ? "Verified"
+                            : "Unverified";
                         break;
 
                     case "budget":
@@ -1141,6 +1362,10 @@ export default function FreelancerJobsPage() {
                         row.Published = formatDate(job.publishedDateTime);
                         break;
 
+                    case "activity":
+                        row.Activity =
+                            `Proposals: ${getProposalRange(job.totalApplicants)}, Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}, Invites: ${job.activity?.invitesSent ?? 0}`;
+                        break;
                 }
 
             });
@@ -1171,7 +1396,7 @@ export default function FreelancerJobsPage() {
             ? selectedSkills.join("-").toLowerCase()
             : "all-skills";
 
-        const fileName = `${day}-${month}-${year}-${skillsName}-${hours}:${minutes}.xlsx`;
+        const fileName = `${day}-${month}-${year}-${skillsName}-${hours}-${minutes}.xlsx`;
 
         XLSX.writeFile(
             workbook,
@@ -1181,9 +1406,9 @@ export default function FreelancerJobsPage() {
         setShowExportModal(false);
     }
 
-
-    const from = jobs.length ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
-    const to = jobs.length ? from + jobs.length - 1 : 0;
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const from = total ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
+    const to = total && jobs.length ? from + jobs.length - 1 : 0;
 
     const displayedJobs = jobs
         .map((job, index) => ({ job, index }))
@@ -1193,7 +1418,13 @@ export default function FreelancerJobsPage() {
 
                 switch (sortColumn) {
                     case "status":
-                        comparison = getStatusSortValue(a.job) - getStatusSortValue(b.job);
+                        comparison = compareText(a.job.projectStatus || "", b.job.projectStatus || "") || getStatusSortValue(a.job) - getStatusSortValue(b.job);
+                        break;
+
+                    case "preferredAttributes":
+                        comparison =
+                            getProjectBadgeLabels(a.job).length -
+                            getProjectBadgeLabels(b.job).length;
                         break;
 
                     case "elapsed":
@@ -1204,11 +1435,19 @@ export default function FreelancerJobsPage() {
 
                     case "country":
                         comparison = compareText(
-                            a.job.client?.location?.country || "",
-                            b.job.client?.location?.country || ""
+                            getJobCountry(a.job) || "",
+                            getJobCountry(b.job) || ""
                         );
                         break;
 
+                    case "averageBid":
+                        if (a.job.averageBid == null && b.job.averageBid != null) return 1;
+                        if (a.job.averageBid != null && b.job.averageBid == null) return -1;
+                        comparison = (a.job.averageBid ?? 0) - (b.job.averageBid ?? 0);
+                        break;
+                    case "memberSince":
+                        comparison = new Date(a.job.client?.memberSinceDateTime || 0).getTime() - new Date(b.job.client?.memberSinceDateTime || 0).getTime();
+                        break;
                     case "feedback":
                         comparison = (a.job.client?.totalFeedback ?? 0) - (b.job.client?.totalFeedback ?? 0);
                         break;
@@ -1223,6 +1462,22 @@ export default function FreelancerJobsPage() {
                             (b.job.totalApplicants ?? 0);
                         break;
 
+                    case "verified":
+                        comparison = Number(isVerified(a.job.client?.verificationStatus)) -
+                            Number(isVerified(b.job.client?.verificationStatus));
+                        break;
+
+                    case "budget": {
+                        const aBudget = getBudgetValue(a.job);
+                        const bBudget = getBudgetValue(b.job);
+
+                        // Keep missing budgets last in both directions.
+                        if (aBudget === null && bBudget !== null) return 1;
+                        if (aBudget !== null && bBudget === null) return -1;
+                        comparison = (aBudget ?? 0) - (bBudget ?? 0);
+                        break;
+                    }
+
                     case "published":
                         comparison = new Date(a.job.publishedDateTime || 0).getTime() -
                             new Date(b.job.publishedDateTime || 0).getTime();
@@ -1232,6 +1487,11 @@ export default function FreelancerJobsPage() {
                 if (comparison !== 0) {
                     return sortDirection === "desc" ? -comparison : comparison;
                 }
+            }
+
+            if (previousClientFirst) {
+                const previous = Number(isPreviousClientJob(b.job)) - Number(isPreviousClientJob(a.job));
+                if (previous) return previous;
             }
 
             if (fixedPriceFirst) {
@@ -1258,6 +1518,26 @@ export default function FreelancerJobsPage() {
 
 
 
+    function parseBudgetAmount(value: string | number | null | undefined): number | null {
+        if (value == null || String(value).trim() === "") return null;
+        const cleaned = String(value).replace(/,/g, "").replace(/[^0-9.-]/g, "");
+        if (!cleaned) return null;
+        const amount = Number(cleaned);
+        return Number.isFinite(amount) && amount >= 0 ? amount : null;
+    }
+
+    function getBudgetValue(job: Job): number | null {
+        // Match getBudget(): hourly fields take precedence over fixed amounts.
+        if (isHourlyPriceJob(job)) {
+            const hourlyMin = parseBudgetAmount(job.hourlyBudgetMin?.displayValue);
+            const hourlyMax = parseBudgetAmount(job.hourlyBudgetMax?.displayValue);
+            if (hourlyMin === null) return hourlyMax;
+            if (hourlyMax === null) return hourlyMin;
+            return Math.max(hourlyMin, hourlyMax);
+        }
+        return parseBudgetAmount(job.amount?.displayValue);
+    }
+
     function getCountryGroup(country: string) {
         return COUNTRY_GROUPS.find(group =>
             group.some(item =>
@@ -1273,15 +1553,6 @@ export default function FreelancerJobsPage() {
             )
         ) || [skill];
     }
-
-    function getAvailableGroupItems(group: string[], options: string[]) {
-        return options.filter(option =>
-            group.some(item =>
-                item.toLowerCase() === option.toLowerCase()
-            )
-        );
-    }
-
     const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
     const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1296,6 +1567,48 @@ export default function FreelancerJobsPage() {
         }
     };
 
+
+    function getFilterSummary() {
+
+        const items: string[] = [];
+        if (selectedCountries.length) {
+            items.push(
+                `Country: ${selectedCountries.join(", ")}`
+            );
+        }
+        if (selectedSkills.length) {
+            items.push(
+                `Skills: ${selectedSkills.join(", ")}`
+            );
+        }
+        if (paymentVerified !== "all") {
+
+            items.push(
+                `Payment: ${paymentVerified}`
+            );
+
+        }
+        if (applicantRange !== "all") {
+
+            items.push(
+                `Applicants: ${applicantRange}`
+            );
+
+        }
+        if (postedDays !== "all") {
+
+            items.push(
+                `Posted: ${postedDays} days`
+            );
+
+        }
+        return items.length
+            ?
+            items.join(" | ")
+            :
+            "No filters applied";
+    }
+
     return (
         <div className="min-h-screen flex flex-col bg-[#0D163F]">
             <Navbar />
@@ -1303,6 +1616,7 @@ export default function FreelancerJobsPage() {
             <main className="flex-1 bg-[#0D163F] px-2 md:px-3 lg:px-4 pt-20 pb-6">
                 <div className="max-w-[1900px] mx-auto">
                     <section className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3 mb-3">
+
                         <div>
                             <div className="mb-3 flex items-center gap-3 md:gap-4">
                                 <img src="https://cdn.simpleicons.org/freelancer/29B2FE" alt="" width={80} height={80} className="h-14 w-14 shrink-0 md:h-20 md:w-20" />
@@ -1319,287 +1633,423 @@ export default function FreelancerJobsPage() {
                         </div>
 
                         <div className="flex flex-wrap gap-1.5">
-                            <StatCard label="Total Search Jobs" value={total} />
+                            <StatCard label="Total Results" value={total} />
                             <StatCard label="Loaded" value={jobs.length} />
                         </div>
                     </section>
 
                     <section className="bg-white border border-gray-200 rounded-xl shadow-lg p-3 mb-3">
+                        <div className="flex items-center justify-between cursor-pointer">
 
-                        <div className="mt-3 border-t border-gray-200 pt-3">
-                            <div className="mb-2 flex items-center justify-between gap-3">
+                            <div className="flex-1">
 
-                                <div className="flex items-center gap-2">
-                                    <h3 className="text-[12px] font-semibold text-gray-800">Job Filters</h3>
-                                    {activeFilterCount > 0 && (
-                                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700">
-                                            {activeFilterCount} active
+                                {
+                                    filterCollapsed
+                                        ?
+                                        <span className="text-[12px] text-gray-600">
+                                            {getFilterSummary()}
                                         </span>
-                                    )}
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={clearFilters}
-                                    disabled={activeFilterCount === 0}
-                                    className="text-[11px] font-bold text-[#29B2FE] disabled:cursor-not-allowed disabled:opacity-40"
-                                    style={{ WebkitTextStroke: "0.5px black" }}
-                                >
-                                    Clear filters
-                                </button>
+                                        :
+                                        <span className="text-[12px] font-semibold text-gray-800">
+                                            Job Filters
+                                        </span>
+                                }
                             </div>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    setFilterCollapsed(
+                                        previous => !previous
+                                    )
+                                }
+                                className="text-gray-600 text-lg transition-transform">
+                                <span
+                                    className={`inline-block transition-transform 
+                                        ${filterCollapsed ? "rotate-180" : ""}
+                                    `}
+                                >
+                                    ⌄
+                                </span>
 
-                            <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-                                <div className="xl:col-span-7">
-                                    <label className="mb-1.5 block text-[11px] font-semibold text-gray-700">Country</label>
-                                    <div className="flex max-h-[92px] flex-wrap gap-1.5 overflow-y-auto pr-1">
+                            </button>
+
+                        </div>
+
+                        {
+                            !filterCollapsed && (
+                                <div className="mt-3 border-t border-gray-200 pt-3">
+                                    <div className="mb-2 flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="text-[12px] font-semibold text-gray-800">Job Filters</h3>
+                                            {activeFilterCount > 0 && (
+                                                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700">
+                                                    {activeFilterCount} active
+                                                </span>
+                                            )}
+                                        </div>
                                         <button
                                             type="button"
-                                            onClick={() => toggleCountry("ALL")}
-                                            disabled={optionsLoading || countryOptions.length === 0}
-                                            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${allCountriesSelected
-                                                ? "border-blue-600 bg-blue-600 text-white"
-                                                : "border-gray-300 bg-white text-gray-600 hover:border-blue-500 hover:text-blue-600"
-                                                }`}
+                                            onClick={clearFilters}
+                                            disabled={activeFilterCount === 0}
+                                            className="text-[11px] font-bold text-[#29B2FE] disabled:cursor-not-allowed disabled:opacity-80"
+                                        // style={{ WebkitTextStroke: "0.5px black" }}
                                         >
-                                            ALL
+                                            Clear filters
                                         </button>
-                                        {optionsLoading ? (
-                                            <span className="text-[11px] text-gray-400">
-                                                Loading countries...
-                                            </span>
-                                        ) : countryOptions.length === 0 ? (
-                                            <span className="text-[11px] text-gray-400">
-                                                No countries added yet.
-                                            </span>
-                                        ) : countryOptions.map(country => {
+                                    </div>
 
-                                            const group = getCountryGroup(country);
-
-                                            const selected = group
-                                                .filter(item =>
-                                                    countryOptions.some(
-                                                        country =>
-                                                            country.toLowerCase() === item.toLowerCase()
-                                                    )
-                                                )
-                                                .every(item =>
-                                                    selectedCountries.some(
-                                                        selected =>
-                                                            selected.toLowerCase() === item.toLowerCase()
-                                                    )
-                                                );
-
-                                            return (
+                                    <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
+                                        <div className="xl:col-span-7">
+                                            <label className="mb-1.5 block text-[11px] font-semibold text-gray-700">Country</label>
+                                            <div className="flex max-h-[92px] flex-wrap gap-1.5 overflow-y-auto pr-1">
                                                 <button
-                                                    key={country}
                                                     type="button"
-                                                    onClick={() => {
-
-                                                        setSelectedCountries(current => {
-
-                                                            const realGroup = group.filter(item =>
-                                                                countryOptions.some(
-                                                                    country =>
-                                                                        country.toLowerCase() === item.toLowerCase()
-                                                                )
-                                                            );
-
-
-                                                            if (selected) {
-
-                                                                return current.filter(
-                                                                    item =>
-                                                                        !realGroup.some(
-                                                                            groupItem =>
-                                                                                groupItem.toLowerCase() === item.toLowerCase()
-                                                                        )
-                                                                );
-
-                                                            }
-
-
-                                                            return [
-                                                                ...new Set([
-                                                                    ...current,
-                                                                    ...realGroup
-                                                                ])
-                                                            ];
-
-                                                        });
-
-                                                    }}
-                                                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${selected
+                                                    onClick={() => toggleCountry("ALL")}
+                                                    disabled={optionsLoading || countryOptions.length === 0}
+                                                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${allCountriesSelected
                                                         ? "border-blue-600 bg-blue-600 text-white"
                                                         : "border-gray-300 bg-white text-gray-600 hover:border-blue-500 hover:text-blue-600"
                                                         }`}
                                                 >
-                                                    {country}
+                                                    ALL
                                                 </button>
-                                            );
+                                                {optionsLoading ? (
+                                                    <span className="text-[11px] text-gray-400">
+                                                        Loading countries...
+                                                    </span>
+                                                ) : countryOptions.length === 0 ? (
+                                                    <span className="text-[11px] text-gray-400">
+                                                        No countries added yet.
+                                                    </span>
+                                                ) : countryOptions.map(country => {
 
-                                        })}
+                                                    const group = getCountryGroup(country);
+
+                                                    const selected = group
+                                                        .filter(item =>
+                                                            countryOptions.some(
+                                                                country =>
+                                                                    country.toLowerCase() === item.toLowerCase()
+                                                            )
+                                                        )
+                                                        .every(item =>
+                                                            selectedCountries.some(
+                                                                selected =>
+                                                                    selected.toLowerCase() === item.toLowerCase()
+                                                            )
+                                                        );
+
+                                                    return (
+                                                        <button
+                                                            key={country}
+                                                            type="button"
+                                                            onClick={() => {
+
+                                                                setSelectedCountries(current => {
+
+                                                                    const realGroup = group.filter(item =>
+                                                                        countryOptions.some(
+                                                                            country =>
+                                                                                country.toLowerCase() === item.toLowerCase()
+                                                                        )
+                                                                    );
+
+
+                                                                    if (selected) {
+
+                                                                        return current.filter(
+                                                                            item =>
+                                                                                !realGroup.some(
+                                                                                    groupItem =>
+                                                                                        groupItem.toLowerCase() === item.toLowerCase()
+                                                                                )
+                                                                        );
+
+                                                                    }
+
+
+                                                                    return [
+                                                                        ...new Set([
+                                                                            ...current,
+                                                                            ...realGroup
+                                                                        ])
+                                                                    ];
+
+                                                                });
+
+                                                            }}
+                                                            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${selected
+                                                                ? "border-blue-600 bg-blue-600 text-white"
+                                                                : "border-gray-300 bg-white text-gray-600 hover:border-blue-500 hover:text-blue-600"
+                                                                }`}
+                                                        >
+                                                            {country}
+                                                        </button>
+                                                    );
+
+                                                })}
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:col-span-5 xl:grid-cols-2">
+                                            <div>
+                                                <label className="mb-1 block text-[11px] font-semibold text-gray-700">Payment Verified</label>
+                                                <div className="flex h-9 items-center gap-3 rounded-lg border border-gray-300 px-2.5">
+                                                    {(["all", "verified", "unverified"] as PaymentFilter[]).map(value => (
+                                                        <label key={value} className="flex cursor-pointer items-center gap-1 text-[12px] text-gray-700">
+                                                            <input
+                                                                type="radio"
+                                                                name="paymentVerified"
+                                                                value={value}
+                                                                checked={paymentVerified === value}
+                                                                onChange={() => setPaymentVerified(value)}
+                                                                className="h-3.5 w-3.5"
+                                                            />
+                                                            {value === "all" ? "All" : value === "verified" ? "Verified" : "Unverified"}
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="mb-1 block text-[11px] font-semibold text-gray-700">Total Applicants</label>
+                                                <select
+                                                    value={applicantRange}
+                                                    onChange={e => setApplicantRange(e.target.value)}
+                                                    className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-[12px] text-gray-900 outline-none focus:border-blue-500"
+                                                >
+                                                    {applicantOptions.map(option => (
+                                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="mb-1 block text-[11px] font-semibold text-gray-700">Posted Time</label>
+                                                <select
+                                                    value={postedDays}
+                                                    onChange={e => setPostedDays(e.target.value)}
+                                                    className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-[12px] text-gray-900 outline-none focus:border-blue-500"
+                                                >
+                                                    {postedTimeOptions.map(option => (
+                                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
+                            )}
 
-                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:col-span-5 xl:grid-cols-2">
-                                    <div>
-                                        <label className="mb-1 block text-[12px] font-semibold text-gray-700">Budget</label>
-                                        <div className="flex items-center gap-1.5">
+                        {
+                            !filterCollapsed && (
+                                <div className="flex flex-col lg:flex-row lg:items-end gap-2">
+                                    <div className="flex-1">
+                                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">Search Jobs</label>
+                                        <div className="flex items-center gap-2 bg-[#F8FAFC] border border-gray-300 rounded-lg px-3 h-[42px] focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-100">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400 shrink-0">
+                                                <circle cx="11" cy="11" r="7" />
+                                                <path d="m20 20-3.5-3.5" />
+                                            </svg>
                                             <input
-                                                type="number"
-                                                min="0"
-                                                value={budgetMin}
-                                                onChange={e => setBudgetMin(e.target.value)}
-                                                placeholder="Min"
-                                                className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-[12px] text-gray-900 outline-none focus:border-blue-500"
-                                            />
-                                            <span className="text-[12px] text-gray-400">to</span>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                value={budgetMax}
-                                                onChange={e => setBudgetMax(e.target.value)}
-                                                placeholder="Max"
-                                                className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-[11px] text-gray-900 outline-none focus:border-blue-500"
+                                                type="text"
+                                                value={search}
+                                                disabled={searchMode === "quick"}
+                                                onChange={e => {
+                                                    setSearchMode("manual");
+                                                    setSelectedSkills([]);
+                                                    setSearch(e.target.value);
+                                                }}
+                                                onKeyDown={e => {
+                                                    if (e.key === "Enter" && !loading) {
+                                                        setSearchMode("manual");
+                                                        searchJobs(1, "0");
+                                                    }
+                                                }}
+                                                placeholder="Wix, Webflow, Shopify, Next.js..."
+                                                className="w-full bg-transparent outline-none border-none text-gray-900 text-xs"
                                             />
                                         </div>
                                     </div>
 
-                                    <div>
-                                        <label className="mb-1 block text-[11px] font-semibold text-gray-700">Total Applicants</label>
-                                        <select
-                                            value={applicantRange}
-                                            onChange={e => setApplicantRange(e.target.value)}
-                                            className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-[12px] text-gray-900 outline-none focus:border-blue-500"
-                                        >
-                                            {applicantOptions.map(option => (
-                                                <option key={option.value} value={option.value}>{option.label}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="mb-1 block text-[11px] font-semibold text-gray-700">Posted Time</label>
-                                        <select
-                                            value={postedDays}
-                                            onChange={e => setPostedDays(e.target.value)}
-                                            className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-[12px] text-gray-900 outline-none focus:border-blue-500"
-                                        >
-                                            {postedTimeOptions.map(option => (
-                                                <option key={option.value} value={option.value}>{option.label}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col lg:flex-row lg:items-end gap-2">
-                            <div className="flex-1">
-                                <label className="block text-[11px] font-semibold text-gray-700 mb-1">Search Jobs</label>
-                                <div className="flex items-center gap-2 bg-[#F8FAFC] border border-gray-300 rounded-lg px-3 h-[42px] focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-100">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400 shrink-0">
-                                        <circle cx="11" cy="11" r="7" />
-                                        <path d="m20 20-3.5-3.5" />
-                                    </svg>
-                                    <input
-                                        type="text"
-                                        value={search}
-                                        disabled={searchMode === "quick"}
-                                        onChange={e => {
-                                            setSearchMode("manual");
-                                            setSelectedSkills([]);
-                                            setSearch(e.target.value);
-                                        }}
-                                        onKeyDown={e => {
-                                            if (e.key === "Enter" && !loading) {
-                                                setSearchMode("manual");
-                                                searchJobs(1, "0");
-                                            }
-                                        }}
-                                        placeholder="Wix, Webflow, Shopify, Next.js..."
-                                        className="w-full bg-transparent outline-none border-none text-gray-900 text-xs"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="flex min-w-[160px] flex-col gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setSearchMode("manual");
-                                        searchJobs(1, "0");
-                                    }}
-                                    disabled={loading}
-                                    className="h-[42px] rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400 flex items-center justify-center gap-1.5"
-                                >
-                                    {loading ? (
-                                        <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Searching...</>
-                                    ) : <>Search Jobs <span>→</span></>}
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="flex items-start justify-between gap-3 mt-2">
-                            <div className="flex flex-1 flex-wrap items-center gap-1.5">
-                                <span className="text-[12px] text-gray-500 mr-1">
-                                    Quick search:
-                                </span>
-
-                                {optionsLoading ? (
-                                    <span className="text-[11px] text-gray-400">Loading skills...</span>
-                                ) : skillOptions.length === 0 ? (
-                                    <span className="text-[11px] text-gray-400">No skills added yet.</span>
-                                ) : skillOptions.map(skill => {
-
-                                    const group = getSkillGroup(skill);
-
-                                    const selected = group.every(item =>
-                                        selectedSkills.includes(item)
-                                    );
-
-                                    return (
+                                    <div className="flex min-w-[160px] flex-row items-center gap-2">
                                         <button
-                                            key={skill}
                                             type="button"
                                             onClick={() => {
+                                                setSearchMode("manual");
+                                                searchJobs(1, "0");
+                                            }}
+                                            disabled={loading}
+                                            className="flex h-[42px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+                                        >
+                                            {loading ? (
+                                                <>
+                                                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                                                    Searching...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Search Jobs <span>→</span>
+                                                </>
+                                            )}
+                                        </button>
 
-                                                const updatedSkills = selected
-                                                    ? selectedSkills.filter(item => !group.includes(item))
-                                                    : [...new Set([...selectedSkills, ...group])];
+                                        {loading && (
+                                            <button
+                                                type="button"
+                                                onClick={stopSearch}
+                                                className="h-[42px] whitespace-nowrap rounded-lg bg-red-600 px-5 text-xs font-semibold text-white transition hover:bg-red-700"
+                                            >
+                                                Stop Search
+                                            </button>
+                                        )}
+                                    </div>
 
-                                                setSelectedSkills(updatedSkills);
 
-                                                if (updatedSkills.length > 0) {
-                                                    setSearchMode("quick");
+                                </div>
+                            )}
+                        {
+                            !filterCollapsed && (
+                                <div className="flex items-start justify-between gap-3 mt-2">
+                                    <div className="flex flex-1 flex-wrap items-center gap-1.5">
+                                        <span className="text-[12px] text-gray-500 mr-1">
+                                            Quick search:
+                                        </span>
+                                        {skillOptions.map(skill => {
+                                            const group = getSkillGroup(skill);
+                                            const selected =
+                                                group.every(item =>
+                                                    selectedSkills.includes(item)
+                                                );
+                                            return (
+                                                <button
+                                                    key={skill}
+                                                    type="button"
+                                                    onClick={() => {
 
-                                                    // Clear manual search text
-                                                    setSearch("");
-                                                } else {
-                                                    setSearchMode(null);
-                                                }
+                                                        const updated =
+                                                            selected
+                                                                ?
+                                                                selectedSkills.filter(
+                                                                    item => !group.includes(item)
+                                                                )
+                                                                :
+                                                                [
+                                                                    ...new Set([
+                                                                        ...selectedSkills,
+                                                                        ...group
+                                                                    ])
+                                                                ];
+                                                        setSelectedSkills(
+                                                            updated
+                                                        );
+                                                        setSearchMode(
+                                                            updated.length
+                                                                ?
+                                                                "quick"
+                                                                :
+                                                                null
+                                                        );
+                                                    }}
+
+                                                    className={`
+px-2.5 py-1 rounded-full border text-[12px]
+font-medium
+${selected
+                                                            ?
+                                                            "bg-blue-600 text-white border-blue-600"
+                                                            :
+                                                            "bg-white text-gray-600 border-gray-300"
+                                                        }
+`}
+                                                >
+
+                                                    {skill}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+
+
+
+                                    <div className="flex gap-2">
+                                        <select
+                                            value={selectedSavedFilter}
+                                            onChange={(e) => {
+
+                                                setSelectedSavedFilter(
+                                                    e.target.value
+                                                );
+
+                                                applySavedFilter(
+                                                    e.target.value
+                                                );
 
                                             }}
-                                            className={`px-2.5 py-1 rounded-full border text-[12px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${selected
-                                                ? "bg-blue-600 text-white border-blue-600"
-                                                : "bg-white text-gray-600 border-gray-300 hover:border-blue-500 hover:text-blue-600"
-                                                }`}
+                                            className="
+    h-9 rounded-lg border
+    border-gray-300 px-3
+    text-[12px]
+    "
                                         >
-                                            {skill}
+
+                                            <option value="">
+                                                Saved Filters
+                                            </option>
+
+
+                                            {
+                                                savedFilters.map(filter => (
+
+                                                    <option
+                                                        key={filter._id || String(filter.id)}
+                                                        value={filter._id || String(filter.id)}
+                                                    >
+                                                        {filter.name}
+                                                    </option>
+
+                                                ))
+                                            }
+
+                                        </select>
+
+
+
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setShowSaveFilterModal(true)
+                                            }
+                                            className=" h-9 rounded-lg border border-green-200 bg-green-50 px-4 text-[11px] font-semibold text-green-700 "
+                                        >
+                                            + Save Filter
                                         </button>
-                                    );
 
-                                })}
-                            </div>
+                                        <button
 
-                            <button
-                                type="button"
-                                onClick={openAddOptionModal}
-                                className="shrink-0 h-9 rounded-lg border border-blue-200 bg-blue-50 px-4 text-[11px] font-semibold text-blue-700 transition hover:border-blue-500 hover:bg-blue-100"
-                            >
-                                + Add Skills / Country
-                            </button>
-                        </div>
+                                            type="button"
+                                            onClick={openAddOptionModal}
+
+                                            className="
+h-9 rounded-lg
+border border-blue-200
+bg-blue-50
+px-4 text-[11px]
+font-semibold text-blue-700
+"
+
+                                        >
+
+                                            + Add Skills / Country
+
+                                        </button>
+
+
+                                    </div>
+
+
+                                </div>
+                            )}
                     </section>
 
                     {error && (
@@ -1617,7 +2067,7 @@ export default function FreelancerJobsPage() {
                             <div>
                                 <h2 className="text-base font-semibold text-[#101828]">Latest Opportunities</h2>
                                 <p className="text-gray-400 text-[12px] mt-0.5">
-                                    {!hasSearched ? "Search jobs to view opportunities" : jobs.length ? `Showing ${from}-${to} matching jobs` : "No jobs found"}
+                                    {!hasSearched ? "Search jobs to view opportunities" : total > 0 ? `Showing ${from}-${to} of ${total} available jobs` : "No jobs found"}
                                 </p>
                             </div>
 
@@ -1651,26 +2101,40 @@ export default function FreelancerJobsPage() {
                                     Hourly Price
                                 </label>
 
-                                <span className="text-blue-600 text-xs font-bold">Total Search Jobs: {total}</span>
+                                <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-800 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={previousClientFirst}
+                                        onChange={e => void handlePreviousClientFirstChange(e.target.checked)}
+                                        disabled={loading}
+                                        className="w-3.5 h-3.5 disabled:cursor-not-allowed"
+                                    />
+                                    Previous Client First
+                                </label>
+
+                                <span className="text-blue-600 text-xs font-bold">Total: {total}</span>
                             </div>
                         </div>
 
-                        <div className="w-full overflow-hidden">
-                            <table className="w-full table-fixed border-collapse text-[11px]"><style>{`td,th{overflow:hidden;text-overflow:ellipsis;} .break-cell{white-space:normal;word-break:break-word;}`}</style>
+                        <div className="w-full overflow-x-auto">
+                            <table className="w-full min-w-[1900px] table-fixed border-collapse text-[11px]"><style>{`td,th{overflow:hidden;text-overflow:ellipsis;} .break-cell{white-space:normal;word-break:break-word;}`}</style>
                                 <colgroup>
+                                    <col className="w-[3%]" />
                                     <col className="w-[8%]" />
+                                    <col className="w-[4%]" />
                                     <col className="w-[8%]" />
-                                    <col className="w-[12%]" />
-                                    <col className="w-[18%]" />
+                                    <col className="w-[15%]" />
                                     <col className="w-[5%]" />
                                     <col className="w-[5%]" />
-                                    <col className="w-[8%]" />
-                                    <col className="w-[8%]" />
+                                    <col className="w-[6%]" />
                                     <col className="w-[5%]" />
                                     <col className="w-[5%]" />
+                                    <col className="w-[3%]" />
+                                    <col className="w-[5%]" />
+                                    <col className="w-[3%]" />
                                     <col className="w-[5%]" />
                                     <col className="w-[5%]" />
-                                    <col className="w-[8%]" />
+                                    <col className="w-[7%]" />
                                 </colgroup>
 
                                 <thead className="bg-[#F8FAFC]">
@@ -1682,6 +2146,30 @@ export default function FreelancerJobsPage() {
                                                 className="inline-flex items-center gap-1 hover:text-blue-600"
                                             >
                                                 Status <span className="text-[10px]">{getSortIndicator("status")}</span>
+                                            </button>
+                                        </th>
+                                        {/* <th className={thClass}>
+                                            Preferred Attributes
+                                        </th> */}
+                                        <th
+                                            className={thClass}
+                                            aria-sort={
+                                                sortColumn === "preferredAttributes"
+                                                    ? sortDirection === "desc"
+                                                        ? "descending"
+                                                        : "ascending"
+                                                    : "none"
+                                            }
+                                        >
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("preferredAttributes")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Preferred Attributes
+                                                <span className="text-[10px]">
+                                                    {getSortIndicator("preferredAttributes")}
+                                                </span>
                                             </button>
                                         </th>
                                         <th className={thClass}>
@@ -1702,10 +2190,10 @@ export default function FreelancerJobsPage() {
                                                 onClick={() => handleColumnSort("country")}
                                                 className="inline-flex items-center gap-1 hover:text-blue-600"
                                             >
-                                                Client Country <span className="text-[10px]">{getSortIndicator("country")}</span>
+                                                Country <span className="text-[10px]">{getSortIndicator("country")}</span>
                                             </button>
                                         </th>
-                                        <th className={thClass}>Client</th>
+                                        <th className={thClass}>Member Since</th>
                                         <th className={thClass}>
                                             <button
                                                 type="button"
@@ -1715,13 +2203,14 @@ export default function FreelancerJobsPage() {
                                                 Published <span className="text-[10px]">{getSortIndicator("published")}</span>
                                             </button>
                                         </th>
+                                        <th className={thClass}>Activity</th>
                                         <th className={thClass}>
                                             <button
                                                 type="button"
                                                 onClick={() => handleColumnSort("proposals")}
                                                 className="inline-flex items-center gap-1 hover:text-blue-600"
                                             >
-                                                Bids
+                                                Proposals
                                                 <span className="text-[10px]">
                                                     {getSortIndicator("proposals")}
                                                 </span>
@@ -1742,10 +2231,23 @@ export default function FreelancerJobsPage() {
                                                 onClick={() => handleColumnSort("applicants")}
                                                 className="inline-flex items-center gap-1 hover:text-blue-600"
                                             >
-                                                Appl <span className="text-[10px]">{getSortIndicator("applicants")}</span>
+                                                Bids <span className="text-[10px]">{getSortIndicator("applicants")}</span>
                                             </button>
                                         </th>
-                                        <th className={thClass}>Budget</th>
+                                        <th className={thClass}>
+                                            <button type="button" onClick={() => handleColumnSort("averageBid")} className="inline-flex items-center gap-1 hover:text-blue-600">
+                                                Average Bid <span className="text-[10px]">{getSortIndicator("averageBid")}</span>
+                                            </button>
+                                        </th>
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("budget")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Budget <span className="text-[10px]">{getSortIndicator("budget")}</span>
+                                            </button>
+                                        </th>
 
                                         <th className={thClass}>Action</th>
                                     </tr>
@@ -1754,7 +2256,7 @@ export default function FreelancerJobsPage() {
                                 <tbody>
                                     {!hasSearched ? (
                                         <tr>
-                                            <td colSpan={15} className="py-12 text-center">
+                                            <td colSpan={18} className="py-12 text-center">
                                                 <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center mx-auto">
                                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-600">
                                                         <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
@@ -1766,7 +2268,7 @@ export default function FreelancerJobsPage() {
                                         </tr>
                                     ) : loading ? (
                                         <tr>
-                                            <td colSpan={15} className="py-12 text-center">
+                                            <td colSpan={18} className="py-12 text-center">
                                                 <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto" />
                                                 <h3 className="mt-2 text-sm font-semibold text-gray-800">Searching Freelancer...</h3>
                                                 <p className="text-gray-400 text-[12px] mt-1">Fetching latest opportunities.</p>
@@ -1774,39 +2276,51 @@ export default function FreelancerJobsPage() {
                                         </tr>
                                     ) : jobs.length === 0 ? (
                                         <tr>
-                                            <td colSpan={15} className="py-12 text-center">
+                                            <td colSpan={18} className="py-12 text-center">
                                                 <h3 className="text-gray-800 text-sm font-semibold">No jobs found</h3>
                                                 <p className="text-gray-400 text-[12px] mt-1">Try searching another keyword.</p>
                                             </td>
                                         </tr>
                                     ) : (
                                         displayedJobs.map(job => {
+                                            const verified = isVerified(job.client?.verificationStatus);
                                             const jobUrl = getJobUrl(job);
+                                            const hasHired = (job.activity?.totalHired ?? 0) > 0;
+                                            const hasManyProposals = (job.totalApplicants ?? 0) >= 50;
                                             return (
-                                                <tr key={job.id} className="border-t border-gray-100 hover:bg-blue-50/40 transition">
+                                                <tr
+                                                    key={job.id}
+                                                    className={`border-t border-gray-100 transition ${hasHired
+                                                        ? "bg-red-100 hover:bg-red-200"
+                                                        : hasManyProposals
+                                                            ? "bg-yellow-100 hover:bg-yellow-200"
+                                                            : "hover:bg-blue-50/40"
+                                                        }`}
+                                                >
+                                                    <td className="px-1.5 py-2 align-top">
+                                                        <span
+                                                            className={`inline-block rounded-full px-2 py-1 text-[12px] font-semibold ${getStatusBadgeClass(job.projectStatus || "N/A")
+                                                                }`}
+                                                        >
+                                                            {job.projectStatus || "N/A"}
+                                                        </span>
+                                                    </td>
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col items-start gap-1">
-                                                            {job.applied && (
-                                                                <span className="whitespace-nowrap rounded-full bg-green-50 px-2 py-0.5 text-[12px] font-semibold text-green-700">
-                                                                    Applied
+                                                            {getProjectBadgeLabels(job).map(label => (
+                                                                <span
+                                                                    key={label}
+                                                                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getStatusBadgeClass(label)}`}
+                                                                >
+                                                                    {label}
                                                                 </span>
-                                                            )}
-                                                            {isFeaturedJob(job) && (
-                                                                <span className="whitespace-nowrap rounded-full bg-amber-50 px-2 py-0.5 text-[12px] font-semibold text-amber-700">
-                                                                    Featured
-                                                                </span>
-                                                            )}
-                                                            {isPreviousClientJob(job) && (
-                                                                <span className="whitespace-nowrap rounded-full bg-blue-50 px-2 py-0.5 text-[12px] font-semibold text-blue-700">
-                                                                    Previous Client
-                                                                </span>
-                                                            )}
-                                                            {!job.applied && !isFeaturedJob(job) && !isPreviousClientJob(job) && (
+                                                            ))}
+
+                                                            {getProjectBadgeLabels(job).length === 0 && (
                                                                 <span className="text-[11px] text-gray-400">N/A</span>
                                                             )}
                                                         </div>
                                                     </td>
-
                                                     <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] text-red-500 whitespace-normal">
                                                         {getElapsedTime(job.publishedDateTime)}
                                                     </td>
@@ -1814,16 +2328,54 @@ export default function FreelancerJobsPage() {
                                                     <td className="px-1.5 py-2 align-top break-words">
                                                         <h3 className="text-[11px] font-medium text-gray-900 leading-[15px]">{job.title || "Untitled Job"}</h3>
                                                     </td>
-
                                                     <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] text-gray-700 break-words">
-                                                        {job.description ? `${job.description.slice(0, 150)}${job.description.length > 150 ? "..." : ""}` : "-"}
-                                                    </td>
+                                                        {job.description ? (
+                                                            <>
+                                                                <p>
+                                                                    {job.description.slice(0, 300)}
+                                                                    {job.description.length > 300 ? "..." : ""}
+                                                                </p>
 
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={async (event) => {
+                                                                        event.stopPropagation();
+
+                                                                        try {
+                                                                            await navigator.clipboard.writeText(
+                                                                                job.description ?? ""
+                                                                            );
+
+                                                                            const jobId = String(job.id);
+                                                                            setCopiedDescriptionId(jobId);
+
+                                                                            if (descriptionCopyTimer.current) clearTimeout(descriptionCopyTimer.current);
+                                                                            descriptionCopyTimer.current = setTimeout(() => {
+                                                                                setCopiedDescriptionId(current =>
+                                                                                    current === jobId ? null : current
+                                                                                );
+                                                                            }, 2000);
+                                                                        } catch (error) {
+                                                                            console.error("Copy failed:", error);
+                                                                            alert("Unable to copy the description.");
+                                                                        }
+                                                                    }}
+                                                                    className="mt-1 text-[11px] font-medium text-blue-600 hover:underline"
+                                                                >
+                                                                    {copiedDescriptionId === String(job.id)
+                                                                        ? "✓ Copied"
+                                                                        : "Copy Description"}
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            "-"
+                                                        )}
+                                                    </td>
 
                                                     <td className={cellClass}>
                                                         {jobUrl ? (
                                                             <div className="flex flex-col items-start gap-1 whitespace-nowrap text-[11px] font-medium">
-                                                                <a href={jobUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                                                <a href={jobUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-[11px] whitespace-nowrap">
                                                                     View Job
                                                                 </a>
                                                                 <button
@@ -1839,27 +2391,42 @@ export default function FreelancerJobsPage() {
                                                     </td>
 
                                                     <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] text-gray-900 break-words">
-                                                        {job.client?.location?.country || "Unknown"}
+                                                        {getJobCountry(job) || "-"}
                                                     </td>
 
-                                                    <td className="px-1.5 py-2 align-top">
-                                                        <div className="flex flex-col gap-0 text-[11px] leading-[15px]">
-                                                            {job.client?.location?.city && <span className="text-gray-500">{job.client.location.city}</span>}
-                                                            {job.client?.memberSinceDateTime && <span className="text-gray-500">Member since {formatMemberSince(job.client.memberSinceDateTime)}</span>}
-                                                        </div>
+                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-nowrap">
+                                                        {formatMemberSince(job.client?.memberSinceDateTime)}
                                                     </td>
 
                                                     <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal">{formatDate(job.publishedDateTime)}</td>
+
+                                                    <td className="px-1.5 py-2 align-top">
+                                                        <div className="flex flex-col gap-0 text-[11px] leading-[14px]">
+                                                            <span>Proposals: {getProposalRange(job.totalApplicants)}</span>
+                                                            <span>Interviewing: {job.activity?.totalInvitedToInterview ?? 0}</span>
+                                                            <span>Invites: {job.activity?.invitesSent ?? 0}</span>
+                                                            <span>Unanswered: {job.activity?.totalUnansweredInvites ?? 0}</span>
+                                                            <span
+                                                                className={
+                                                                    hasHired
+                                                                        ? "font-semibold text-red-700"
+                                                                        : "text-gray-700"
+                                                                }
+                                                            >
+                                                                Hired: {job.activity?.totalHired ?? 0}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+
                                                     <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{getProposalRange(job.totalApplicants)}</td>
 
-                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">
-                                                        {job.client?.totalFeedback == null ? "Unknown" :
-                                                            <>{job.client.totalFeedback.toFixed(1)}{job.client.totalReviews != null && <span className="block text-gray-500">{job.client.totalReviews} reviews</span>}</>}
+                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{getFeedbackText(job)}</td>
+                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.bidCount ?? job.totalApplicants ?? "N/A"}</td>
+                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px]">{job.averageBidDisplay || "N/A"}</td>
+
+                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal break-words">
+                                                        {getBudget(job)}
                                                     </td>
-                                                    <td className="px-1 py-2 align-top text-center text-[11px] leading-[15px]">{job.totalApplicants ?? 0}</td>
-                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal break-words">{getBudget(job).split("\n").map((line, i) => (
-                                                        <div key={i}>{line}</div>
-                                                    ))}</td>
 
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col gap-1.5">
@@ -1909,7 +2476,7 @@ export default function FreelancerJobsPage() {
                                 <p className="text-[11px] text-gray-500">
                                     Showing <span className="font-semibold text-gray-800">{from}</span>–
                                     <span className="font-semibold text-gray-800">{to}</span> of{" "}
-                                    <span className="font-semibold text-gray-800">{total}</span> search jobs
+                                    <span className="font-semibold text-gray-800">{total}</span> jobs
                                 </p>
 
                                 <div className="flex items-center gap-2">
@@ -1923,7 +2490,7 @@ export default function FreelancerJobsPage() {
                                     </button>
 
                                     <div className="flex h-8 items-center rounded-md border border-blue-200 bg-blue-50 px-3 text-[11px] font-semibold text-blue-700">
-                                        Page {currentPage}
+                                        Page {currentPage} of {totalPages}
                                     </div>
 
                                     <button
@@ -1942,6 +2509,90 @@ export default function FreelancerJobsPage() {
             </main>
 
 
+            {showSaveFilterModal && (
+
+                <div
+                    className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 px-4"
+                    onClick={() => setShowSaveFilterModal(false)}
+                >
+
+                    <div
+                        className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+
+                        <div className="flex items-center justify-between mb-4">
+
+                            <h2 className="text-base font-semibold text-gray-900">
+                                Save Current Filter
+                            </h2>
+
+
+                            <button
+                                type="button"
+                                onClick={() => setShowSaveFilterModal(false)}
+                                className="text-gray-400 hover:text-gray-700"
+                            >
+                                ✕
+                            </button>
+
+                        </div>
+
+
+                        <input
+                            type="text"
+                            value={newFilterName}
+                            onChange={(e) => setNewFilterName(e.target.value)}
+                            placeholder="Example: Wix Canada Jobs"
+                            className="
+            w-full h-10 rounded-lg
+            border border-gray-300
+            px-3 text-sm
+            outline-none
+            focus:border-blue-500
+            "
+                        />
+
+
+                        <div className="flex justify-end gap-2 mt-5">
+
+
+                            <button
+                                type="button"
+                                onClick={() => setShowSaveFilterModal(false)}
+                                className="
+                px-4 py-2 rounded-lg
+                border border-gray-300
+                text-sm
+                "
+                            >
+                                Cancel
+                            </button>
+
+
+                            <button
+                                type="button"
+                                onClick={saveCurrentFilter}
+                                className="
+                px-4 py-2 rounded-lg
+                bg-blue-600
+                text-white
+                text-sm
+                font-semibold
+                "
+                            >
+                                Save
+                            </button>
+
+
+                        </div>
+
+
+                    </div>
+
+                </div>
+
+            )}
             {showExportModal && (
                 <div
                     className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4"
@@ -2007,256 +2658,12 @@ export default function FreelancerJobsPage() {
             )}
 
             {showAddOptionModal && (
-                <div
-                    className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-4 py-8 backdrop-blur-[2px]"
-                    onClick={closeAddOptionModal}
-                >
-                    <div
-                        className="w-full max-w-lg overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)]"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5">
-                            <div className="pr-5">
-                                <div className="mb-2 inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-bold uppercase tracking-[1px] text-blue-700">
-                                    Manage Search Options
-                                </div>
-
-                                <h2 className="text-xl font-bold tracking-tight text-gray-900">
-                                    Add Skills / Country
-                                </h2>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={closeAddOptionModal}
-                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-200 text-lg text-gray-400 transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700"
-                                aria-label="Close"
-                            >
-                                ×
-                            </button>
-                        </div>
-
-                        <div className="px-6 py-5">
-                            {/* Option selector */}
-                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.5px] text-gray-500">
-                                What would you like to add?
-                            </p>
-
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                {/* Country */}
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setAddOptionType("country");
-                                        setNewOptionValue("");
-                                        setAddOptionError("");
-                                    }}
-                                    className={`group relative rounded-xl border p-4 text-left transition-all ${addOptionType === "country"
-                                        ? "border-blue-600 bg-blue-50 shadow-sm ring-1 ring-blue-600"
-                                        : "border-gray-200 bg-white hover:border-blue-300 hover:bg-slate-50"
-                                        }`}
-                                >
-                                    <div className="flex items-start gap-3">
-                                        <div
-                                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${addOptionType === "country"
-                                                ? "bg-blue-600 text-white"
-                                                : "bg-blue-50 text-blue-600"
-                                                }`}
-                                        >
-                                            <svg
-                                                width="18"
-                                                height="18"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="2"
-                                            >
-                                                <circle cx="12" cy="12" r="9" />
-                                                <path d="M3 12h18" />
-                                                <path d="M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9" />
-                                                <path d="M12 3c-2.5 2.5-3.5 5.5-3.5 9s1 6.5 3.5 9" />
-                                            </svg>
-                                        </div>
-
-                                        <div>
-                                            <div className="text-sm font-bold text-gray-900">
-                                                Add Country
-                                            </div>
-
-                                            <div className="mt-1 text-[11px] leading-4 text-gray-500">
-                                                Add another location to your country filters.
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {addOptionType === "country" && (
-                                        <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[12px] font-bold text-white">
-                                            ✓
-                                        </span>
-                                    )}
-                                </button>
-
-                                {/* Skill */}
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setAddOptionType("skill");
-                                        setNewOptionValue("");
-                                        setAddOptionError("");
-                                    }}
-                                    className={`group relative rounded-xl border p-4 text-left transition-all ${addOptionType === "skill"
-                                        ? "border-blue-600 bg-blue-50 shadow-sm ring-1 ring-blue-600"
-                                        : "border-gray-200 bg-white hover:border-blue-300 hover:bg-slate-50"
-                                        }`}
-                                >
-                                    <div className="flex items-start gap-3">
-                                        <div
-                                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${addOptionType === "skill"
-                                                ? "bg-blue-600 text-white"
-                                                : "bg-violet-50 text-violet-600"
-                                                }`}
-                                        >
-                                            <svg
-                                                width="18"
-                                                height="18"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="2"
-                                            >
-                                                <path d="M12 3v18" />
-                                                <path d="M3 12h18" />
-                                                <path d="m5.5 5.5 13 13" />
-                                                <path d="m18.5 5.5-13 13" />
-                                            </svg>
-                                        </div>
-
-                                        <div>
-                                            <div className="text-sm font-bold text-gray-900">
-                                                Add Skill
-                                            </div>
-
-                                            <div className="mt-1 text-[11px] leading-4 text-gray-500">
-                                                Add another skill to your quick-search options.
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {addOptionType === "skill" && (
-                                        <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[12px] font-bold text-white">
-                                            ✓
-                                        </span>
-                                    )}
-                                </button>
-                            </div>
-
-                            {/* Empty state */}
-                            {!addOptionType && (
-                                <div className="mt-5 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-center">
-                                    <p className="text-xs font-medium text-gray-600">
-                                        Select an option above to continue
-                                    </p>
-                                </div>
-                            )}
-
-                            {/* Input section */}
-                            {addOptionType && (
-                                <div className="mt-5 rounded-xl border border-gray-200 bg-slate-50 p-4">
-                                    <label className="mb-1.5 block text-xs font-semibold text-gray-700">
-                                        {addOptionType === "country"
-                                            ? "Country Name"
-                                            : "Skill Name"}
-                                    </label>
-
-                                    <div className="relative">
-                                        <input
-                                            type="text"
-                                            autoFocus
-                                            value={newOptionValue}
-                                            onChange={e => {
-                                                setNewOptionValue(e.target.value);
-                                                setAddOptionError("");
-                                            }}
-                                            onKeyDown={e => {
-                                                if (e.key === "Enter") addCountryOrSkill();
-                                            }}
-                                            placeholder={
-                                                addOptionType === "country"
-                                                    ? "Example: Brazil"
-                                                    : "Example: WordPress"
-                                            }
-                                            className={`h-11 w-full rounded-lg border bg-white px-3 pr-10 text-sm text-gray-900 outline-none transition ${addOptionError
-                                                ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100"
-                                                : "border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                                                }`}
-                                        />
-
-                                        {newOptionValue.trim() && (
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setNewOptionValue("");
-                                                    setAddOptionError("");
-                                                }}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-lg leading-none text-gray-400 hover:text-gray-700"
-                                            >
-                                                ×
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    <p className="mt-1.5 text-[12px] text-gray-400">
-                                        {addOptionType === "country"
-                                            ? "This country will appear in your country filter list."
-                                            : "This skill will appear in your Quick Search options."}
-                                    </p>
-
-                                    {addOptionError && (
-                                        <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
-                                            <span className="mt-[1px] text-xs font-bold text-red-500">
-                                                !
-                                            </span>
-
-                                            <p className="text-[11px] font-medium text-red-600">
-                                                {addOptionError}
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Footer */}
-                        <div className="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/80 px-6 py-4">
-
-                            <div className="ml-auto flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={closeAddOptionModal}
-                                    className="h-10 rounded-lg border border-gray-300 bg-white px-4 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
-                                >
-                                    Cancel
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={addCountryOrSkill}
-                                    disabled={optionSaving || !addOptionType || !newOptionValue.trim()}
-                                    className="h-10 min-w-[120px] rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-                                >
-                                    {optionSaving
-                                        ? "Saving..."
-                                        : addOptionType === "country"
-                                            ? "Add Country"
-                                            : addOptionType === "skill"
-                                                ? "Add Skill"
-                                                : "Add"}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <SearchOptionsModal
+                    countryOptions={countryOptions}
+                    skillOptions={skillOptions}
+                    onClose={closeAddOptionModal}
+                    onChanged={handleSearchOptionChange}
+                />
             )}
 
             {showModal && selectedJob && (
@@ -2300,7 +2707,7 @@ export default function FreelancerJobsPage() {
                                                 type="button"
                                                 onClick={async () => {
                                                     try {
-                                                        if (navigator.clipboard) await navigator.clipboard.writeText(aiReport.proposal || "");
+                                                        await navigator.clipboard.writeText(aiReport.proposal || "");
                                                         alert("Proposal copied!");
                                                     } catch (err) {
                                                         console.error("Copy failed:", err);

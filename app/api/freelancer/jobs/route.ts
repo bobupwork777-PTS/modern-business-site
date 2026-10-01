@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
-
-
 export const runtime = "nodejs";
 
 export const dynamic = "force-dynamic";
-
-
 
 type Raw = Record<string, any>;
 
@@ -16,63 +12,101 @@ const fail = (error: string, status = 502) => NextResponse.json({ success: false
 
 const number = (v: unknown) => Number(v) || 0;
 
-const iso = (v: unknown) => v ? new Date(number(v) * 1000).toISOString() : undefined;
+const iso = (v: unknown): string | undefined => {
+
+  if (v == null || v === "") return undefined;
+
+  const numeric = Number(v);
+
+  const date = Number.isFinite(numeric)
+
+    ? new Date(numeric < 1e12 ? numeric * 1000 : numeric)
+
+    : new Date(String(v));
+
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+
+};
+
+const optionalNumber = (...values: unknown[]): number | undefined => {
+
+  for (const value of values) {
+
+    if ((typeof value !== "number" && typeof value !== "string") || value === "") continue;
+
+    const parsed = Number(value);
+
+    if (Number.isFinite(parsed)) return parsed;
+
+  }
+
+  return undefined;
+
+};
+
+const enabled = (value: unknown) => value === true || value === 1 ||
+
+  (typeof value === "string" && ["true", "1"].includes(value.trim().toLowerCase()));
+
+const debugEnabled = () => process.env.FREELANCER_DEBUG === "true" ||
+
+  (process.env.NODE_ENV === "development" && process.env.FREELANCER_DEBUG !== "false");
 
 const record = (v: unknown): Raw => v && typeof v === "object" && !Array.isArray(v) ? v as Raw : {};
 
 const projectList = (v: unknown): Raw[] => Array.isArray(v) ? v : Object.values(record(v));
 
-const userMap = (v: unknown): Record<string, Raw> => Array.isArray(v)
+const userMap = (v: unknown): Record<string, Raw> => Array.isArray(v) ? Object.fromEntries(v.filter(u => u?.id != null).map(u => [String(u.id), u])) : record(v);
 
-  ? Object.fromEntries(v.filter(u => u?.id != null).map(u => [String(u.id), u]))
+const ownerId = (p: Raw) => String(p.owner_id ?? p.owner_id_new ?? p.owner?.id ?? p.owner_info?.id ?? p.user_id ?? (typeof p.owner === "string" || typeof p.owner === "number" ? p.owner : ""));
 
-  : record(v);
+const projectOwner = (p: Raw, users: Record<string, Raw>): Raw => ({
 
-const ownerId = (p: Raw) => String(p.owner_id ?? p.owner?.id ?? p.user_id ??
+  ...record(p.owner_info), ...record(p.owner), ...record(users[ownerId(p)])
 
-  (typeof p.owner === "number" || typeof p.owner === "string" ? p.owner : ""));
+});
 
-const countryText = (v: unknown): string => typeof v === "string" ? v :
+const employerStats = (u: Raw) => {
 
-  record(v).name || record(v).country_name || record(v).code || "";
+  const reputation = record(u.employer_reputation);
+
+  const history = record(reputation.entire_history);
+
+  return {
+
+    rating: optionalNumber(history.overall, reputation.overall),
+
+    reviews: optionalNumber(history.reviews, history.review_count, reputation.reviews, reputation.review_count)
+
+  };
+
+};
+
+const countryText = (v: unknown): string => typeof v === "string" ? v : record(v).name || record(v).country_name || record(v).code || "";
 
 const countryOf = (u: Raw) => countryText(u.country) || countryText(u.location?.country);
 
-type PublicClient = {
+type PublicClient = { country: string; city: string; memberSinceDateTime?: string; feedbackRating?: number; reviewCount?: number; paymentVerified?: true };
 
-  country: string; city: string; memberSinceDateTime?: string;
-
-  feedbackRating?: number; reviewCount?: number; paymentVerified?: true;
-
-};
-
-type LocalClient = Partial<PublicClient> & {
-
-  invitesSent?: number; completedProjects?: number; contactedFreelancers?: string;
-
-};
+type LocalClient = Partial<PublicClient> & { invitesSent?: number; completedProjects?: number; contactedFreelancers?: string };
 
 const publicClientCache = new Map<string, { value: PublicClient | null; expires: number }>();
 
-const decodeHtml = (s: string) => s.replace(/&(#\d+|#x[\da-f]+|amp|nbsp|quot|apos|lt|gt);/gi, (_, entity: string) => {
+const decodeHtml = (s: string) => s.replace(/&(#\d+|#x[\da-f]+|amp|nbsp|quot|apos|lt|gt);/gi, (_, e: string) => {
 
-  const names: Record<string, string> = { amp: "&", nbsp: " ", quot: '"', apos: "'", lt: "<", gt: ">" };
+  const n: Record<string, string> = { amp: "&", nbsp: " ", quot: '"', apos: "'", lt: "<", gt: ">" };
 
-  if (entity[0] === "#") return String.fromCodePoint(parseInt(entity.slice(entity[1]?.toLowerCase() === "x" ? 2 : 1), entity[1]?.toLowerCase() === "x" ? 16 : 10));
+  if (e[0] === "#") return String.fromCodePoint(parseInt(e.slice(e[1]?.toLowerCase() === "x" ? 2 : 1), e[1]?.toLowerCase() === "x" ? 16 : 10));
 
-  return names[entity.toLowerCase()] || " ";
+  return n[e.toLowerCase()] || " ";
 
 });
 
 function parsePublicClient(html: string): PublicClient | null {
 
-  const clean = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+  const clean = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>/gi, " ");
 
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ");
-
-  const text = decodeHtml(clean.replace(/<[^>]+>/g, "\n"));
-
-  const lines = text.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  const lines = decodeHtml(clean.replace(/<[^>]+>/g, "\n")).split(/\r?\n/).map(x => x.trim()).filter(Boolean);
 
   const start = lines.findIndex(x => /^About the client$/i.test(x));
 
@@ -86,15 +120,9 @@ function parsePublicClient(html: string): PublicClient | null {
 
   const parts = location?.split(",").map(x => x.trim()) || [];
 
-  // Some client cards show a flag but omit the city/location text. Only
-
-  // inspect markup after the client heading to avoid bidder flags above it.
-
   const clientMarkup = clean.match(/About the client([\s\S]*?)(?:Client Verification|Similar jobs|Other jobs from this client)/i)?.[1] || "";
 
-  const flagCountry = decodeHtml(clientMarkup.match(/alt=["']Flag of ([^"']+)["']/i)?.[1] || "");
-
-  const country = parts.at(-1) || flagCountry;
+  const country = parts.at(-1) || decodeHtml(clientMarkup.match(/alt=["']Flag of ([^"']+)["']/i)?.[1] || "");
 
   if (!country) return null;
 
@@ -102,11 +130,9 @@ function parsePublicClient(html: string): PublicClient | null {
 
   const parsedDate = since ? new Date(`${since.replace(/^Member since\s+/i, "")} UTC`) : null;
 
-  const locationIndex = section.indexOf(location || "");
+  const locIdx = section.indexOf(location || "");
 
-  const ratingText = locationIndex >= 0 ? section[locationIndex + 1] : undefined;
-
-  const reviewsText = locationIndex >= 0 ? section[locationIndex + 2] : undefined;
+  const [ratingText, reviewsText] = [locIdx >= 0 ? section[locIdx + 1] : undefined, locIdx >= 0 ? section[locIdx + 2] : undefined];
 
   const hasRating = ratingText != null && /^(?:[0-4](?:\.\d+)?|5(?:\.0+)?)$/.test(ratingText);
 
@@ -138,21 +164,17 @@ async function getPublicClient(project: Raw): Promise<PublicClient | null> {
 
   const slug = String(project.seo_url || "").replace(/^\/+/, "");
 
-  const url = new URL(`/projects/${slug || id}`, "https://www.freelancer.com");
-
   try {
 
-    const response = await fetch(url, {
+    const res = await fetch(new URL(`/projects/${slug || id}`, "https://www.freelancer.com"), {
 
-      headers: { Accept: "text/html" }, redirect: "error", cache: "no-store",
-
-      signal: AbortSignal.timeout(6000)
+      headers: { Accept: "text/html" }, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(6000)
 
     });
 
-    if (!response.ok) return null;
+    if (!res.ok) return null;
 
-    const value = parsePublicClient(await response.text());
+    const value = parsePublicClient(await res.text());
 
     publicClientCache.set(id, { value, expires: Date.now() + (value ? 15 : 2) * 60_000 });
 
@@ -162,31 +184,35 @@ async function getPublicClient(project: Raw): Promise<PublicClient | null> {
 
 }
 
-
-
 async function freelancerGet(path: string, params: URLSearchParams, token: string) {
 
-  const response = await fetch(`${BASE}${path}?${params}`, {
+  const res = await fetch(`${BASE}${path}?${params}`, {
 
-    headers: { "freelancer-oauth-v1": token, Accept: "application/json" },
-
-    cache: "no-store", signal: AbortSignal.timeout(20000)
+    headers: { "freelancer-oauth-v1": token, Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(20000)
 
   });
 
-  const body = await response.json();
+  const body = await res.json();
 
-  if (!response.ok || body.status === "error") {
+  if (debugEnabled()) {
 
-    throw new Error(body?.message || `Freelancer API returned ${response.status}`);
+    // Log response data only. Never log the OAuth token or request headers.
+
+    const query: Record<string, string | string[]> = {};
+
+    params.forEach((_, key) => { const values = params.getAll(key); query[key] = values.length === 1 ? values[0] : values; });
+
+    const entry = { path, params: query, status: res.status, body };
+
+    console.dir({ freelancerApiResponse: entry }, { depth: null });
 
   }
+
+  if (!res.ok || body.status === "error") throw new Error(body?.message || `Freelancer API returned ${res.status}`);
 
   return body.result || {};
 
 }
-
-
 
 export async function GET(req: NextRequest) {
 
@@ -204,49 +230,27 @@ export async function GET(req: NextRequest) {
 
   const query = (input.get("q")?.trim() || selectedSkills[0] || "").slice(0, 200);
 
-
-
   const detailFlags = {
 
-    full_description: "true", job_details: "true", upgrades: "true",
+    full_description: "true", job_details: "true", upgrades: "true", location_details: "true",
 
-    location_details: "true", user_details: "true", user_basic_details: "true",
+    user_details: "true", user_basic_details: "true", user_country_details: "true",
 
-    user_country_details: "true", user_location_details: "true",
-
-    user_status_details: "true", user_reputation_details: "true",
+    user_location_details: "true", user_status_details: "true", user_reputation_details: "true",
 
     user_employer_reputation_details: "true", user_display_info_details: "true"
 
   };
 
-
-
   async function fetchBatch(offset: number) {
 
-    const searchParams = new URLSearchParams({
-
-      limit: String(limit), offset: String(offset), sort_field: "time_updated", ...detailFlags
-
-    });
+    const searchParams = new URLSearchParams({ limit: String(limit), offset: String(offset), sort_field: "time_updated", ...detailFlags });
 
     if (query) searchParams.set("query", query);
 
     const search = await freelancerGet("/projects/0.1/projects/active/", searchParams, token);
 
-    const listed = projectList(search.projects);
-
-    let users = userMap(search.users);
-
-    let projects = listed;
-
-    let detailError: string | null = null;
-
-
-
-    // The active-project listing is often a short projection. Fetch all IDs in
-
-    // one request to obtain the expanded project and employer projections.
+    let listed = projectList(search.projects), users = userMap(search.users), projects = listed;
 
     if (listed.length) {
 
@@ -264,29 +268,17 @@ export async function GET(req: NextRequest) {
 
         users = { ...users, ...userMap(details.users) };
 
-      } catch (error) {
-
-        detailError = error instanceof Error ? error.message : String(error);
-
-      }
+      } catch {}
 
     }
 
+    const missingIds = [...new Set(projects.map(ownerId).filter(id => id &&
 
-
-    const missingIds = [...new Set(projects.map(ownerId).filter(id => id && !users[id]))];
+      (!users[id]?.registration_date || employerStats(users[id] || {}).rating == null || employerStats(users[id] || {}).reviews == null)))];
 
     if (missingIds.length) {
 
-      const userParams = new URLSearchParams({
-
-        basic_details: "true", country_details: "true", location_details: "true",
-
-        status_details: "true", reputation_details: "true",
-
-        employer_reputation_details: "true", display_info_details: "true"
-
-      });
+      const userParams = new URLSearchParams({ basic_details: "true", country_details: "true", location_details: "true", status_details: "true", reputation_details: "true", employer_reputation_details: "true", display_info_details: "true" });
 
       missingIds.forEach(id => userParams.append("users[]", id));
 
@@ -294,95 +286,63 @@ export async function GET(req: NextRequest) {
 
         const details = await freelancerGet("/users/0.1/users/", userParams, token);
 
-        users = { ...users, ...userMap(details.users) };
+        Object.entries(userMap(details.users)).forEach(([id, value]) => {
 
-      } catch (error) {
+          users[id] = { ...users[id], ...value };
 
-        if (process.env.NODE_ENV === "development") console.warn("Employer detail lookup:", error);
+        });
 
-      }
+      } catch (e) { if (process.env.NODE_ENV === "development") console.warn("Employer detail lookup:", e); }
 
     }
 
-
-
     const publicClients = new Map<string, PublicClient>();
 
-    const needsPublicClient = projects.filter(p => !countryOf({ ...record(p.owner), ...record(users[ownerId(p)]) }));
+    const needsPublic = projects.filter(p => {
 
-    for (let i = 0; i < needsPublicClient.length; i += 8) {
+      const user = projectOwner(p, users);
 
-      await Promise.all(needsPublicClient.slice(i, i + 8).map(async p => {
+      const stats = employerStats(user);
 
-        const client = await getPublicClient(p);
+      return !countryOf(user) || !iso(user.registration_date) || stats.rating == null || stats.reviews == null;
 
-        if (client) publicClients.set(String(p.id), client);
+    });
+
+    for (let i = 0; i < needsPublic.length; i += 8) {
+
+      await Promise.all(needsPublic.slice(i, i + 8).map(async p => {
+
+        const c = await getPublicClient(p);
+
+        if (c) publicClients.set(String(p.id), c);
 
       }));
 
     }
 
-
-
-    // On localhost an optional, separately running Chrome service can read
-
-    // details visible to the signed-in user. This endpoint is never called by
-
-    // deployed builds, and no browser cookies are sent through this API.
-
     const localClients = new Map<string, LocalClient>();
-
-    let localClientError: string | null = null;
 
     if (process.env.NODE_ENV === "development" && projects.length) {
 
-      const urls = projects.map(p => p.seo_url ?
-
-        `https://www.freelancer.com/projects/${String(p.seo_url).replace(/^\/+/, "")}` :
-
-        `https://www.freelancer.com/projects/${p.id}`);
+      const urls = projects.map(p => p.seo_url ? `https://www.freelancer.com/projects/${String(p.seo_url).replace(/^\/+/, "")}` : `https://www.freelancer.com/projects/${p.id}`);
 
       try {
 
-        const response = await fetch("http://127.0.0.1:43187/enrich", {
+        const res = await fetch("http://127.0.0.1:43187/enrich", {
 
-          method: "POST", headers: { "Content-Type": "application/json" },
-
-          body: JSON.stringify({ urls }), cache: "no-store", signal: AbortSignal.timeout(90000)
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }), cache: "no-store", signal: AbortSignal.timeout(90000)
 
         });
 
-        if (!response.ok) throw Error(`Local service returned ${response.status}`);
+        if (res.ok) (await res.json()).results?.forEach((r: any) => r.client && localClients.set(r.url, r.client));
 
-        const body = await response.json();
-
-        body.results?.forEach((row: { url: string; client: LocalClient | null }) => {
-
-          if (row.client) localClients.set(row.url, row.client);
-
-        });
-
-      } catch (error) { localClientError = error instanceof Error ? error.message : String(error); }
+      } catch {}
 
     }
 
+    const aliases: Record<string, string> = { aus: "australia", can: "canada", deu: "germany", fra: "france", nz: "new zealand", nzl: "new zealand", sgp: "singapore", uae: "united arab emirates", uk: "united kingdom", usa: "united states", zaf: "south africa" };
 
-
-    const aliases: Record<string, string> = {
-
-      aus: "australia", can: "canada", deu: "germany", fra: "france",
-
-      nz: "new zealand", nzl: "new zealand", sgp: "singapore",
-
-      uae: "united arab emirates", uk: "united kingdom", usa: "united states",
-
-      zaf: "south africa"
-
-    };
-
-    const countries = (input.get("countries") || "").split(",")
-
-      .map(x => x.trim().toLowerCase()).filter(Boolean).map(x => aliases[x] || x);
+    const countries = (input.get("countries") || "").split(",").map(x => x.trim().toLowerCase()).filter(Boolean).map(x => aliases[x] || x);
 
     const skills = selectedSkills.map(x => x.toLowerCase());
 
@@ -396,21 +356,15 @@ export async function GET(req: NextRequest) {
 
     const verification = input.get("paymentVerified");
 
-
-
     const jobs = projects.map(p => {
 
       const id = ownerId(p);
 
-      const user = { ...record(p.owner), ...record(users[id]) };
+      const user = projectOwner(p, users);
 
       const publicClient = publicClients.get(String(p.id));
 
-      const projectUrl = p.seo_url ?
-
-        `https://www.freelancer.com/projects/${String(p.seo_url).replace(/^\/+/, "")}` :
-
-        `https://www.freelancer.com/projects/${p.id}`;
+      const projectUrl = p.seo_url ? `https://www.freelancer.com/projects/${String(p.seo_url).replace(/^\/+/, "")}` : `https://www.freelancer.com/projects/${p.id}`;
 
       const localClient = localClients.get(projectUrl);
 
@@ -424,85 +378,77 @@ export async function GET(req: NextRequest) {
 
       const currency = p.currency?.code || "";
 
-      const minimum = p.budget?.minimum;
+      const minimum = p.budget?.minimum, maximum = p.budget?.maximum;
 
-      const maximum = p.budget?.maximum;
-
-      const budget = minimum == null && maximum == null ? "" :
-
-        `${currency} ${minimum ?? maximum}${maximum != null && maximum !== minimum ? ` – ${maximum}` : ""}`;
+      const budget = minimum == null && maximum == null ? "" : `${currency} ${minimum ?? maximum}${maximum != null && maximum !== minimum ? ` – ${maximum}` : ""}`;
 
       const hourly = String(p.type || "").toLowerCase().includes("hourly");
 
+      const upgrades = { ...record(p.upgrades) };
+
+      for (const key of ["featured", "assisted", "recruiter", "NDA", "nda", "sealed", "urgent", "nonpublic", "private", "fulltime", "ip_contract", "ip_agreement", "non_compete", "qualified", "pf_only", "enterprise", "highlighted", "premium", "success_bundle", "project_management", "unpaid_recruiter", "listed", "extend"]) {
+
+        if (enabled(p[key])) upgrades[key] = p[key];
+
+      }
+
+      const reputation = record(user.employer_reputation);
+
+      const history = record(reputation.entire_history);
+
+      const rating = optionalNumber(history.overall, reputation.overall, localClient?.feedbackRating, publicClient?.feedbackRating);
+
+      const reviews = optionalNumber(history.reviews, history.review_count, reputation.reviews, reputation.review_count, localClient?.reviewCount, publicClient?.reviewCount);
+
+      const bids = optionalNumber(p.bid_stats?.bid_count);
+
+      const averageBid = optionalNumber(p.bid_stats?.bid_avg);
+
+      const rawStatus = String(p.frontend_project_status || p.status || "").trim();
+
+      const projectStatus = rawStatus.toLowerCase() === "active" ? "Open" :
+
+        rawStatus ? rawStatus.replace(/[_-]+/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "";
+
       return {
 
-        id: String(p.id), title: p.title || "Untitled project",
+        id: String(p.id), title: p.title || "Untitled project", description: p.description || p.preview_description || "",
 
-        description: p.description || p.preview_description || "",
+        url: projectUrl, createdDateTime: iso(p.time_submitted), publishedDateTime: iso(p.time_submitted || p.time_updated),
 
-        url: projectUrl,
+        totalApplicants: bids, bidCount: bids, averageBid,
 
-        createdDateTime: iso(p.time_submitted),
+        averageBidDisplay: averageBid == null ? "" : `${currency} ${averageBid.toLocaleString("en-US", { maximumFractionDigits: 2 })}${hourly ? "/hr" : ""}`.trim(),
 
-        publishedDateTime: iso(p.time_submitted || p.time_updated),
+        currency, projectStatus, upgrades, isFeatured: enabled(upgrades.featured), premium: enabled(upgrades.premium),
 
-        totalApplicants: number(p.bid_stats?.bid_count),
-
-        isFeatured: Boolean(p.featured), premium: Boolean(p.featured),
-
-        ...(hourly ? {
-
-          hourlyBudgetMin: { displayValue: minimum == null ? "" : `${currency} ${minimum}` },
-
-          hourlyBudgetMax: { displayValue: maximum == null ? "" : `${currency} ${maximum}` }
-
-        } : { amount: { displayValue: budget, currency } }),
+        ...(hourly ? { hourlyBudgetMin: { displayValue: minimum == null ? "" : `${currency} ${minimum}` }, hourlyBudgetMax: { displayValue: maximum == null ? "" : `${currency} ${maximum}` } } : { amount: { displayValue: budget, currency } }),
 
         client: hasClient ? {
 
-          ...user,
+          companyRid: id, name: user.display_name || user.public_name || user.username || "",
 
-          companyRid: id,
+          location: { city: user.location?.city || localClient?.city || publicClient?.city || "", country },
 
-          name: user.display_name || user.public_name || user.username || "",
-
-          location: { ...record(user.location), city: user.location?.city || localClient?.city || publicClient?.city || "", country },
-
-          memberSinceDateTime: user.registration_date ? iso(user.registration_date) : localClient?.memberSinceDateTime || publicClient?.memberSinceDateTime,
+          memberSinceDateTime: iso(user.registration_date) || localClient?.memberSinceDateTime || publicClient?.memberSinceDateTime,
 
           detailSource: Object.keys(user).length ? "api" : localClient ? "local_signed_in_page" : "public_project_page",
 
-          verificationStatus: localClient?.paymentVerified || publicClient?.paymentVerified || verified === true ? "verified" :
-
-            verified === false ? "unverified" : "",
+          verificationStatus: localClient?.paymentVerified || publicClient?.paymentVerified || verified === true ? "verified" : verified === false ? "unverified" : "",
 
           totalPostedJobs: user.employer_reputation?.project_stats?.all?.count,
 
-          totalFeedback: typeof user.employer_reputation?.overall === "number" ?
+          totalFeedback: rating,
 
-            user.employer_reputation.overall : localClient?.feedbackRating ?? publicClient?.feedbackRating,
-
-          totalReviews: localClient?.reviewCount ?? publicClient?.reviewCount
+          totalReviews: reviews
 
         } : null,
 
-        projectLocation: p.location || null,
+        projectLocation: p.location || null, projectCountry,
 
-        projectCountry,
-
-        activity: { lastClientActivity: iso(p.time_updated),
-
-          invitesSent: localClient?.invitesSent,
-
-          completedProjects: localClient?.completedProjects,
-
-          contactedFreelancers: localClient?.contactedFreelancers },
+        activity: { lastClientActivity: iso(p.time_updated), invitesSent: localClient?.invitesSent, completedProjects: localClient?.completedProjects, contactedFreelancers: localClient?.contactedFreelancers },
 
         freelancerSkills: Array.isArray(p.jobs) ? p.jobs.map((j: Raw) => j.name).filter(Boolean) : [],
-
-        rawProject: p,
-
-        rawClient: hasClient ? user : null
 
       };
 
@@ -512,60 +458,66 @@ export async function GET(req: NextRequest) {
 
       const terms = `${j.title} ${j.description} ${j.freelancerSkills.join(" ")}`.toLowerCase();
 
-      return (!countries.length || countries.includes((j.client?.location?.country || "").toLowerCase()))
+      return (!countries.length || countries.includes((j.client?.location?.country || "").toLowerCase())) &&
 
-        && (!skills.length || skills.some(x => terms.includes(x)))
+        (!skills.length || skills.some(x => terms.includes(x))) &&
 
-        && (min === null || number(p.budget?.maximum) >= min)
+        (min === null || number(p.budget?.maximum) >= min) &&
 
-        && (max === null || number(p.budget?.minimum) <= max)
+        (max === null || number(p.budget?.minimum) <= max) &&
 
-        && (!input.get("applicants") || j.totalApplicants >= bidMin && j.totalApplicants <= bidMax)
+        (!input.get("applicants") || (j.totalApplicants ?? 0) >= bidMin && (j.totalApplicants ?? 0) <= bidMax) &&
 
-        && (!days || number(p.time_submitted) >= Date.now() / 1000 - days * 86400)
+        (!days || number(p.time_submitted) >= Date.now() / 1000 - days * 86400) &&
 
-        && (!verification || j.client?.verificationStatus === verification);
+        (!verification || j.client?.verificationStatus === verification);
 
     });
 
-
-
     return { jobs, listed, rawTotal: search.total_count == null ? null : number(search.total_count) };
+
   }
 
   try {
+
     const jobs: any[] = [];
-    let scanOffset = startOffset;
-    let nextCursor: string | null = null;
-    let totalJobs: number | null = null;
+
+    let scanOffset = startOffset, nextCursor: string | null = null, totalJobs: number | null = null;
+
     const seen = new Set<string>();
 
-    // Fetch subsequent raw batches until 50 matching jobs and one lookahead
-    // match are found. The cursor points to that lookahead job, so no match
-    // is skipped between pages.
     while (true) {
+
       const batch = await fetchBatch(scanOffset);
+
       if (batch.rawTotal !== null) totalJobs = batch.rawTotal;
+
       if (!batch.listed.length) break;
+
       const indices = new Map(batch.listed.map((p, i) => [String(p.id), i]));
+
       for (const job of batch.jobs) {
+
         if (seen.has(job.id)) continue;
+
         seen.add(job.id);
-        if (jobs.length === limit) {
-          nextCursor = String(scanOffset + (indices.get(job.id) ?? 0));
-          break;
-        }
+
+        if (jobs.length === limit) { nextCursor = String(scanOffset + (indices.get(job.id) ?? 0)); break; }
+
         jobs.push(job);
+
       }
+
       if (nextCursor) break;
+
       scanOffset += batch.listed.length;
+
       if (batch.rawTotal !== null ? scanOffset >= batch.rawTotal : batch.listed.length < limit) break;
+
     }
 
-    return NextResponse.json({
-      success: true, jobs, total: totalJobs ?? (nextCursor ? Number(nextCursor) + 1 : scanOffset),
-      pageInfo: { endCursor: nextCursor, hasNextPage: nextCursor !== null }
-    });
+    return NextResponse.json({ success: true, jobs, total: totalJobs ?? (nextCursor ? Number(nextCursor) + 1 : scanOffset), pageInfo: { endCursor: nextCursor, hasNextPage: nextCursor !== null } });
+
   } catch (error) {
 
     if (process.env.NODE_ENV === "development") console.error("Freelancer search:", error);

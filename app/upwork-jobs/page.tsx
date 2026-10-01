@@ -84,7 +84,8 @@ type SavedFilter = {
 const PAGE_SIZE = 50;
 const applicantOptions = [
     { value: "all", label: "Any applicants" },
-    { value: "0-49", label: "20 - 50" },
+    { value: "0-19", label: "0 - 20" },
+    { value: "20-49", label: "20 - 50" },
     { value: "50-999999", label: "50+" }
 ];
 const postedTimeOptions = [
