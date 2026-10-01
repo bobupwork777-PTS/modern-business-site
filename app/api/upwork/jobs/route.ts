@@ -912,8 +912,11 @@ async function formatJob(edge: any) {
       ),
 
 
-    amount:
-      job.amount || null,
+    amount:job.amount || null,
+
+    hourlyBudgetMin: job.hourlyBudgetMin ?? null,
+    
+    hourlyBudgetMax: job.hourlyBudgetMax ?? null,
 
 
     client: {
