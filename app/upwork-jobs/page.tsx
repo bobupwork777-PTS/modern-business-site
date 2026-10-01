@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import SearchOptionsModal, {type SearchOptionChange,} from "../../components/SearchOptionsModal";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import * as XLSX from "xlsx";
@@ -64,7 +65,6 @@ type Job = {
 type AIReport = { relevant: boolean; proposal?: string; reason?: string; error?: string };
 type PageInfo = { endCursor: string | null; hasNextPage: boolean };
 type PaymentFilter = "all" | "verified" | "unverified";
-type AddOptionType = "country" | "skill";
 type SortColumn = "status" | "elapsed" | "country" | "feedback" | "applicants" | "proposals" | "verified" | "budget" | "published";
 type SortDirection = "desc" | "asc";
 type SavedFilter = {
@@ -84,8 +84,8 @@ type SavedFilter = {
 const PAGE_SIZE = 50;
 const applicantOptions = [
     { value: "all", label: "Any applicants" },
-    { value: "0-50", label: "20 - 50" },
-    { value: "51-999999", label: "50+" }
+    { value: "0-49", label: "20 - 50" },
+    { value: "50-999999", label: "50+" }
 ];
 const postedTimeOptions = [
     { value: "all", label: "Any time" },
@@ -176,12 +176,8 @@ export default function UpworkJobsPage() {
     const [applicantRange, setApplicantRange] = useState("all");
     const [postedDays, setPostedDays] = useState("3");
     const [showAddOptionModal, setShowAddOptionModal] = useState(false);
-    const [addOptionType, setAddOptionType] = useState<AddOptionType | null>(null);
-    const [newOptionValue, setNewOptionValue] = useState("");
-    const [addOptionError, setAddOptionError] = useState("");
     const [queuedJobIds, setQueuedJobIds] = useState<string[]>([]);
     const [optionsLoading, setOptionsLoading] = useState(true);
-    const [optionSaving, setOptionSaving] = useState(false);
     const [queueLoadingIds, setQueueLoadingIds] = useState<string[]>([]);
     const [showExportModal, setShowExportModal] = useState(false);
     const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
@@ -916,68 +912,37 @@ export default function UpworkJobsPage() {
     }
 
     function openAddOptionModal() {
-        setAddOptionType(null);
-        setNewOptionValue("");
-        setAddOptionError("");
         setShowAddOptionModal(true);
     }
 
     function closeAddOptionModal() {
         setShowAddOptionModal(false);
-        setAddOptionType(null);
-        setNewOptionValue("");
-        setAddOptionError("");
     }
 
-    async function addCountryOrSkill() {
-        const value = newOptionValue.trim();
-
-        if (!addOptionType) {
-            setAddOptionError("Please choose Add Country or Add Skill.");
-            return;
-        }
-        if (!value) {
-            setAddOptionError(`Please enter a ${addOptionType}.`);
-            return;
-        }
-
-        try {
-            setOptionSaving(true);
-            setAddOptionError("");
-
-            const endpoint =
-                addOptionType === "country"
-                    ? "/api/upwork/countries"
-                    : "/api/upwork/skills";
-
-            const response = await fetch(endpoint, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ name: value })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok || !data.success) {
-                throw new Error(
-                    data.error ||
-                    `Unable to add ${addOptionType}`
-                );
+    async function handleSearchOptionChange(change: SearchOptionChange) {
+        const updateSelected = (current: string[]) => {
+            if (change.action === "delete") {
+                return current.filter(name => name !== change.name);
             }
-
-            await loadSearchOptions();
-            closeAddOptionModal();
-        } catch (err) {
-            console.error("ADD SEARCH OPTION ERROR:", err);
-            setAddOptionError(
-                err instanceof Error
-                    ? err.message
-                    : "Unable to save option"
-            );
-        } finally {
-            setOptionSaving(false);
+            if (change.action === "update") {
+                return [...new Set(current.map(name =>
+                    name === change.oldName ? change.name : name
+                ))];
+            }
+            return current;
+        };
+        const updateOptions = (current: string[]) => {
+            const values = change.action === "add"
+                ? [...new Set([...current, change.name])]
+                : updateSelected(current);
+            return [...values].sort((a, b) => a.localeCompare(b));
+        };
+        if (change.type === "country") {
+            setCountryOptions(updateOptions);
+            setSelectedCountries(updateSelected);
+        } else {
+            setSkillOptions(updateOptions);
+            setSelectedSkills(updateSelected);
         }
     }
 
@@ -2728,327 +2693,12 @@ font-semibold text-blue-700
             )}
 
             {showAddOptionModal && (
-                <div
-                    className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-4 py-8 backdrop-blur-[2px]"
-                    onClick={closeAddOptionModal}
-                >
-                    <div
-                        className="w-full max-w-lg overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.28)]"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <div className="flex items-start justify-between border-b border-gray-100 px-6 py-5">
-                            <div className="pr-5">
-                                <div className="mb-2 inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-[12px] font-bold uppercase tracking-[1px] text-blue-700">
-                                    Manage Search Options
-                                </div>
-
-                                <h2 className="text-xl font-bold tracking-tight text-gray-900">
-                                    Add Skills / Country
-                                </h2>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={closeAddOptionModal}
-                                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-200 text-lg text-gray-400 transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700"
-                                aria-label="Close"
-                            >
-                                ×
-                            </button>
-                        </div>
-
-                        <div className="px-6 py-5">
-                            {/* Option selector */}
-                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.5px] text-gray-500">
-                                What would you like to add?
-                            </p>
-
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                {/* Country */}
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setAddOptionType("country");
-                                        setNewOptionValue("");
-                                        setAddOptionError("");
-                                    }}
-                                    className={`group relative rounded-xl border p-4 text-left transition-all ${addOptionType === "country"
-                                        ? "border-blue-600 bg-blue-50 shadow-sm ring-1 ring-blue-600"
-                                        : "border-gray-200 bg-white hover:border-blue-300 hover:bg-slate-50"
-                                        }`}
-                                >
-                                    <div className="flex items-start gap-3">
-                                        <div
-                                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${addOptionType === "country"
-                                                ? "bg-blue-600 text-white"
-                                                : "bg-blue-50 text-blue-600"
-                                                }`}
-                                        >
-                                            <svg
-                                                width="18"
-                                                height="18"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="2"
-                                            >
-                                                <circle cx="12" cy="12" r="9" />
-                                                <path d="M3 12h18" />
-                                                <path d="M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9" />
-                                                <path d="M12 3c-2.5 2.5-3.5 5.5-3.5 9s1 6.5 3.5 9" />
-                                            </svg>
-                                        </div>
-
-                                        <div>
-                                            <div className="text-sm font-bold text-gray-900">
-                                                Add Country
-                                            </div>
-
-                                            <div className="mt-1 text-[11px] leading-4 text-gray-500">
-                                                Add another location to your country filters.
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {addOptionType === "country" && (
-                                        <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[12px] font-bold text-white">
-                                            ✓
-                                        </span>
-                                    )}
-                                </button>
-
-                                {/* Skill */}
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setAddOptionType("skill");
-                                        setNewOptionValue("");
-                                        setAddOptionError("");
-                                    }}
-                                    className={`group relative rounded-xl border p-4 text-left transition-all ${addOptionType === "skill"
-                                        ? "border-blue-600 bg-blue-50 shadow-sm ring-1 ring-blue-600"
-                                        : "border-gray-200 bg-white hover:border-blue-300 hover:bg-slate-50"
-                                        }`}
-                                >
-                                    <div className="flex items-start gap-3">
-                                        <div
-                                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${addOptionType === "skill"
-                                                ? "bg-blue-600 text-white"
-                                                : "bg-violet-50 text-violet-600"
-                                                }`}
-                                        >
-                                            <svg
-                                                width="18"
-                                                height="18"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="2"
-                                            >
-                                                <path d="M12 3v18" />
-                                                <path d="M3 12h18" />
-                                                <path d="m5.5 5.5 13 13" />
-                                                <path d="m18.5 5.5-13 13" />
-                                            </svg>
-                                        </div>
-
-                                        <div>
-                                            <div className="text-sm font-bold text-gray-900">
-                                                Add Skill
-                                            </div>
-
-                                            <div className="mt-1 text-[11px] leading-4 text-gray-500">
-                                                Add another skill to your quick-search options.
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {addOptionType === "skill" && (
-                                        <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[12px] font-bold text-white">
-                                            ✓
-                                        </span>
-                                    )}
-                                </button>
-                            </div>
-
-                            {/* Empty state */}
-                            {!addOptionType && (
-                                <div className="mt-5 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-center">
-                                    <p className="text-xs font-medium text-gray-600">
-                                        Select an option above to continue
-                                    </p>
-                                </div>
-                            )}
-
-                            {/* Input section */}
-                            {addOptionType && (
-                                <div className="mt-5 rounded-xl border border-gray-200 bg-slate-50 p-4">
-                                    <label className="mb-1.5 block text-xs font-semibold text-gray-700">
-                                        {addOptionType === "country"
-                                            ? "Country Name"
-                                            : "Skill Name"}
-                                    </label>
-
-                                    <div className="relative">
-                                        <input
-                                            type="text"
-                                            autoFocus
-                                            value={newOptionValue}
-                                            onChange={e => {
-                                                setNewOptionValue(e.target.value);
-                                                setAddOptionError("");
-                                            }}
-                                            onKeyDown={e => {
-                                                if (e.key === "Enter") addCountryOrSkill();
-                                            }}
-                                            placeholder={
-                                                addOptionType === "country"
-                                                    ? "Example: Brazil"
-                                                    : "Example: WordPress"
-                                            }
-                                            className={`h-11 w-full rounded-lg border bg-white px-3 pr-10 text-sm text-gray-900 outline-none transition ${addOptionError
-                                                ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100"
-                                                : "border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                                                }`}
-                                        />
-
-                                        {newOptionValue.trim() && (
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setNewOptionValue("");
-                                                    setAddOptionError("");
-                                                }}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-lg leading-none text-gray-400 hover:text-gray-700"
-                                            >
-                                                ×
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    <p className="mt-1.5 text-[12px] text-gray-400">
-                                        {addOptionType === "country"
-                                            ? "This country will appear in your country filter list."
-                                            : "This skill will appear in your Quick Search options."}
-                                    </p>
-
-                                    {addOptionError && (
-                                        <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
-                                            <span className="mt-[1px] text-xs font-bold text-red-500">
-                                                !
-                                            </span>
-
-                                            <p className="text-[11px] font-medium text-red-600">
-                                                {addOptionError}
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Footer */}
-                        <div className="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50/80 px-6 py-4">
-
-                            <div className="ml-auto flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={closeAddOptionModal}
-                                    className="h-10 rounded-lg border border-gray-300 bg-white px-4 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
-                                >
-                                    Cancel
-                                </button>
-
-                                <button
-                                    type="button"
-                                    onClick={addCountryOrSkill}
-                                    disabled={optionSaving || !addOptionType || !newOptionValue.trim()}
-                                    className="h-10 min-w-[120px] rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-                                >
-                                    {optionSaving
-                                        ? "Saving..."
-                                        : addOptionType === "country"
-                                            ? "Add Country"
-                                            : addOptionType === "skill"
-                                                ? "Add Skill"
-                                                : "Add"}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {showModal && selectedJob && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4 py-8" onClick={closeModal}>
-                    <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 text-gray-900 shadow-2xl md:p-8" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-widest text-blue-600">AI Report</p>
-                                <h2 className="mt-1 text-2xl font-bold">AI Opportunity Analysis</h2>
-                            </div>
-                            <button type="button" onClick={closeModal} className="text-2xl text-gray-500 transition hover:text-black" aria-label="Close">×</button>
-                        </div>
-
-                        <h3 className="mt-5 text-base font-semibold">{selectedJob.title || "Untitled Job"}</h3>
-                        <p className="mt-1 text-xs text-gray-500">{getBudget(selectedJob)}</p>
-
-                        {analyzing ? (
-                            <div className="py-14 text-center">
-                                <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
-                                <p className="mt-4 font-medium text-blue-600">AI is analyzing this opportunity...</p>
-                                <p className="mt-1 text-xs text-gray-500">Reviewing the scope, skills, pain points and opportunity fit.</p>
-                            </div>
-                        ) : aiReport?.error ? (
-                            <div className="mt-6 rounded-xl bg-red-50 p-4 text-sm text-red-700">{aiReport.error}</div>
-                        ) : aiReport ? (
-                            <div className="mt-6">
-                                {!aiReport.relevant ? (
-                                    <div className="rounded-xl bg-yellow-50 p-5 text-yellow-700">
-                                        <h3 className="font-bold">Not Recommended</h3>
-                                        <p className="mt-2 text-sm">{aiReport.reason}</p>
-                                    </div>
-                                ) : (
-                                    <>
-                                        <div className="rounded-xl bg-blue-50 p-5">
-                                            <h3 className="text-lg font-bold text-blue-700">Generated Proposal</h3>
-                                            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700">{aiReport.proposal}</p>
-                                        </div>
-
-                                        <div className="mt-4 flex flex-wrap gap-3">
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    try {
-                                                        if (navigator.clipboard) await navigator.clipboard.writeText(aiReport.proposal || "");
-                                                        alert("Proposal copied!");
-                                                    } catch (err) {
-                                                        console.error("Copy failed:", err);
-                                                    }
-                                                }}
-                                                className="rounded-full bg-black px-5 py-2.5 text-sm text-white transition hover:bg-gray-800"
-                                            >
-                                                Copy Proposal
-                                            </button>
-
-                                            {getJobUrl(selectedJob) && (
-                                                <a
-                                                    href={getJobUrl(selectedJob)}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="rounded-full bg-blue-600 px-5 py-2.5 text-sm text-white transition hover:bg-blue-700"
-                                                >
-                                                    Open Job URL
-                                                </a>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                        ) : null}
-                    </div>
-                </div>
+                <SearchOptionsModal
+                    countryOptions={countryOptions}
+                    skillOptions={skillOptions}
+                    onClose={closeAddOptionModal}
+                    onChanged={handleSearchOptionChange}
+                />
             )}
 
             <Footer />
