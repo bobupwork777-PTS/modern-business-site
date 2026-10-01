@@ -65,7 +65,7 @@ type AIReport = { relevant: boolean; proposal?: string; reason?: string; error?:
 type PageInfo = { endCursor: string | null; hasNextPage: boolean };
 type PaymentFilter = "all" | "verified" | "unverified";
 type AddOptionType = "country" | "skill";
-type SortColumn = "status" | "elapsed" | "country" | "feedback" | "applicants" | "proposals" | "verified" | "published";
+type SortColumn = "status" | "elapsed" | "country" | "feedback" | "applicants" | "proposals" | "verified" | "budget" | "published";
 type SortDirection = "desc" | "asc";
 type SavedFilter = {
     _id?: string;
@@ -228,11 +228,11 @@ export default function UpworkJobsPage() {
                     ? data.filters.filter(
                         (filter: any) =>
                             filter._id || filter.id
-                    ): []
+                    ) : []
             );
         }
         catch (error) {
-            console.error("LOAD SAVED FILTER ERROR",error);
+            console.error("LOAD SAVED FILTER ERROR", error);
         }
     }
 
@@ -312,9 +312,9 @@ export default function UpworkJobsPage() {
     ) {
 
         const searchKeyword = (
-                keyword ??
-                search
-            ).trim() ||
+            keyword ??
+            search
+        ).trim() ||
             "";
 
         const activeKeyword =
@@ -332,18 +332,18 @@ export default function UpworkJobsPage() {
 
             const params =
                 new URLSearchParams({
-                    q:activeKeyword,
+                    q: activeKeyword,
 
                     first:
                         String(
                             PAGE_SIZE
                         ),
 
-                    after:cursor
+                    after: cursor
                 });
 
             if (selectedCountries.length) {
-                params.set( "countries",selectedCountries.join(","));
+                params.set("countries", selectedCountries.join(","));
             }
 
             const activeSkills =
@@ -355,28 +355,28 @@ export default function UpworkJobsPage() {
             }
 
             if (budgetMin.trim()) {
-                params.set("budgetMin",budgetMin.trim());
+                params.set("budgetMin", budgetMin.trim());
             }
             if (budgetMax.trim()) {
 
-                params.set("budgetMax",budgetMax.trim());
+                params.set("budgetMax", budgetMax.trim());
             }
             if (
-                paymentVerified !=="all") {
-                params.set("paymentVerified",paymentVerified);
+                paymentVerified !== "all") {
+                params.set("paymentVerified", paymentVerified);
             }
 
             if (
-                applicantRange !=="all") {
-                params.set("applicants",applicantRange);
+                applicantRange !== "all") {
+                params.set("applicants", applicantRange);
             }
 
-            if (postedDays !=="all") {
-                params.set("postedDays",postedDays);
+            if (postedDays !== "all") {
+                params.set("postedDays", postedDays);
             }
 
             if (prioritizePreviousClient) {
-                params.set("previousClient","true");
+                params.set("previousClient", "true");
             }
             console.log("API Params:", Object.fromEntries(params.entries()));
             const response =
@@ -732,10 +732,10 @@ export default function UpworkJobsPage() {
         }
         try {
             const filter = {
-                userId:"CURRENT_USER_ID",
+                userId: "CURRENT_USER_ID",
                 name,
-                countries:[...selectedCountries],
-                skills:[...selectedSkills],
+                countries: [...selectedCountries],
+                skills: [...selectedSkills],
                 budgetMin,
                 budgetMax,
                 paymentVerified,
@@ -751,14 +751,14 @@ export default function UpworkJobsPage() {
                             "Content-Type":
                                 "application/json"
                         },
-                        body:JSON.stringify(filter)
+                        body: JSON.stringify(filter)
                     }
                 );
 
 
 
             const data = await response.json();
-            console.log("SAVE FILTER RESPONSE",data);
+            console.log("SAVE FILTER RESPONSE", data);
             if (!response.ok || !data.success) {
                 throw new Error(
                     data.error ||
@@ -775,8 +775,8 @@ export default function UpworkJobsPage() {
             setShowSaveFilterModal(false);
         }
         catch (error) {
-            console.error("SAVE FILTER ERROR",error);
-            alert(error instanceof Error?error.message:"Save failed");
+            console.error("SAVE FILTER ERROR", error);
+            alert(error instanceof Error ? error.message : "Save failed");
         }
 
     }
@@ -1123,13 +1123,13 @@ export default function UpworkJobsPage() {
         }
         const analysisJob = {
             Skill: skill,
-            Title:job.title || "Untitled Job",
-            Description:job.description || "",
-            Budget:getBudget(job),
-            Status:getStatusText(job),
-            PublishedDate:formatDate(job.publishedDateTime),
-            Activity:activity,
-            URL:getJobUrl(job)
+            Title: job.title || "Untitled Job",
+            Description: job.description || "",
+            Budget: getBudget(job),
+            Status: getStatusText(job),
+            PublishedDate: formatDate(job.publishedDateTime),
+            Activity: activity,
+            URL: getJobUrl(job)
         };
 
         try {
@@ -1158,7 +1158,7 @@ export default function UpworkJobsPage() {
             setAiReport(data);
         }
         catch (err) {
-            console.error("Analyze error:",err);
+            console.error("Analyze error:", err);
             setAiReport({
                 relevant: false,
                 error:
@@ -1466,6 +1466,17 @@ export default function UpworkJobsPage() {
                             Number(isVerified(b.job.client?.verificationStatus));
                         break;
 
+                    case "budget": {
+                        const aBudget = getBudgetValue(a.job);
+                        const bBudget = getBudgetValue(b.job);
+
+                        // Keep missing budgets last in both directions.
+                        if (aBudget === null && bBudget !== null) return 1;
+                        if (aBudget !== null && bBudget === null) return -1;
+                        comparison = (aBudget ?? 0) - (bBudget ?? 0);
+                        break;
+                    }
+
                     case "published":
                         comparison = new Date(a.job.publishedDateTime || 0).getTime() -
                             new Date(b.job.publishedDateTime || 0).getTime();
@@ -1500,6 +1511,26 @@ export default function UpworkJobsPage() {
         .map(item => item.job);
 
 
+
+    function parseBudgetAmount(value: string | number | null | undefined): number | null {
+        if (value == null || String(value).trim() === "") return null;
+        const cleaned = String(value).replace(/,/g, "").replace(/[^0-9.-]/g, "");
+        if (!cleaned) return null;
+        const amount = Number(cleaned);
+        return Number.isFinite(amount) && amount >= 0 ? amount : null;
+    }
+
+    function getBudgetValue(job: Job): number | null {
+        // Match getBudget(): hourly fields take precedence over fixed amounts.
+        if (isHourlyPriceJob(job)) {
+            const hourlyMin = parseBudgetAmount(job.hourlyBudgetMin?.displayValue);
+            const hourlyMax = parseBudgetAmount(job.hourlyBudgetMax?.displayValue);
+            if (hourlyMin === null) return hourlyMax;
+            if (hourlyMax === null) return hourlyMin;
+            return Math.max(hourlyMin, hourlyMax);
+        }
+        return parseBudgetAmount(job.amount?.displayValue);
+    }
 
     function getCountryGroup(country: string) {
         return COUNTRY_GROUPS.find(group =>
@@ -1635,7 +1666,7 @@ export default function UpworkJobsPage() {
                                 className="text-gray-600 text-lg transition-transform">
                                 <span
                                     className={`inline-block transition-transform 
-                                        ${filterCollapsed ? "rotate-180" : "" }
+                                        ${filterCollapsed ? "rotate-180" : ""}
                                     `}
                                 >
                                     ⌄
@@ -2101,7 +2132,6 @@ font-semibold text-blue-700
                                     <col className="w-[4%]" />
                                     <col className="w-[5%]" />
                                     <col className="w-[5%]" />
-                                    {/* <col className="w-[8%]" /> */}
                                     <col className="w-[4%]" />
                                     <col className="w-[6%]" />
                                     <col className="w-[5%]" />
@@ -2199,7 +2229,16 @@ font-semibold text-blue-700
                                                 Verified <span className="text-[10px]">{getSortIndicator("verified")}</span>
                                             </button>
                                         </th>
-                                        <th className={thClass}>Budget</th>
+                                        <th className={thClass}>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleColumnSort("budget")}
+                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                            >
+                                                Budget <span className="text-[10px]">{getSortIndicator("budget")}</span>
+                                            </button>
+                                        </th>
+                                        {/* <th className={thClass}>Budget</th> */}
 
                                         <th className={thClass}>Action</th>
                                     </tr>
@@ -2274,9 +2313,36 @@ font-semibold text-blue-700
                                                     <td className="px-1.5 py-2 align-top break-words">
                                                         <h3 className="text-[11px] font-medium text-gray-900 leading-[15px]">{job.title || "Untitled Job"}</h3>
                                                     </td>
-
                                                     <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] text-gray-700 break-words">
-                                                        {job.description ? `${job.description.slice(0, 150)}${job.description.length > 150 ? "..." : ""}` : "-"}
+                                                        {job.description ? (
+                                                            <>
+                                                                <p>
+                                                                    {job.description.slice(0, 300)}
+                                                                    {job.description.length > 300 ? "..." : ""}
+                                                                </p>
+
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={async (event) => {
+                                                                        event.stopPropagation();
+
+                                                                        try {
+                                                                            await navigator.clipboard.writeText(
+                                                                                job.description ?? ""
+                                                                            );
+                                                                        } catch (error) {
+                                                                            console.error("Copy failed:", error);
+                                                                            alert("Unable to copy the description.");
+                                                                        }
+                                                                    }}
+                                                                    className="mt-1 text-[11px] font-medium text-blue-600 hover:underline"
+                                                                >
+                                                                    Copy Description
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            "-"
+                                                        )}
                                                     </td>
 
                                                     <td className={cellClass}>
@@ -2350,7 +2416,9 @@ font-semibold text-blue-700
                                                         </span>
                                                     </td>
 
-                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal break-words">{getBudget(job)}</td>
+                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] whitespace-normal break-words">
+                                                        {getBudget(job)}
+                                                    </td>
 
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col gap-1.5">
