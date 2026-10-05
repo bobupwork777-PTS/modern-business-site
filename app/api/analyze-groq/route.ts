@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { connectDB } from "@/lib/mongodb";
 import Prompt from "@/lib/models/Prompt";
 
@@ -31,22 +30,22 @@ function detectSkill(title: string, description: string): string {
 
 function safeErrorMessage(error: unknown): string {
     let message = error instanceof Error ? error.message : "Unknown server error";
-    for (const secret of [process.env.GEMINI_API_KEY, process.env.MONGODB_URI]) {
+    for (const secret of [process.env.GROQ_API_KEY, process.env.MONGODB_URI]) {
         if (secret) message = message.split(secret).join("[redacted]");
     }
     return message
         .replace(/mongodb(?:\+srv)?:\/\/[^\s]+/gi, "[redacted database URI]")
         .replace(/([?&]key=)[^&\s]+/gi, "$1[redacted]")
-        .replace(/AIza[\w-]+/g, "[redacted API key]")
+        .replace(/gsk_[\w-]+/g, "[redacted API key]")
         .slice(0, 1800);
 }
 
 export async function POST(req: Request) {
     let stage = "request validation";
     try {
-        const apiKey = process.env.GEMINI_API_KEY;
+        const apiKey = process.env.GROQ_API_KEY;
         if (!apiKey) {
-            return Response.json({ error: "Missing Gemini API Key" }, { status: 500 });
+            return Response.json({ error: "Missing GROQ_API_KEY" }, { status: 500 });
         }
 
         let body;
@@ -153,83 +152,103 @@ export async function POST(req: Request) {
             JSON.stringify(fields, null, 2)
         ].join("\n\n");
 
-        stage = "Gemini configuration";
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const createModel = (modelName: string) => genAI.getGenerativeModel({
-            model: modelName,
-            generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: SchemaType.OBJECT,
-                    properties: {
-                        relevant: {
-                            type: SchemaType.BOOLEAN,
-                            description: "Whether the job fits the freelancer's expertise"
+        stage = "Groq generation";
+        const model = process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b";
+        const requestBody = JSON.stringify({
+            model,
+            messages: [{
+                role: "user",
+                content: `${prompt}\n\nReturn JSON with relevant, proposal, and reason. If relevant is false, proposal must be empty.`
+            }],
+            max_completion_tokens: 4096,
+            response_format: {
+                type: "json_schema",
+                json_schema: {
+                    name: "proposal_analysis",
+                    strict: true,
+                    schema: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                            relevant: { type: "boolean" },
+                            proposal: { type: "string" },
+                            reason: { type: "string" }
                         },
-                        proposal: {
-                            type: SchemaType.STRING,
-                            description: "Complete proposal when relevant; otherwise empty"
-                        },
-                        reason: {
-                            type: SchemaType.STRING,
-                            description: "Brief explanation of fit or mismatch"
-                        }
-                    },
-                    required: ["relevant", "proposal", "reason"]
-                }
-            }
-        });
-        stage = "Gemini generation";
-        const primaryModel = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
-        const fallbackModel = process.env.GEMINI_FALLBACK_MODEL?.trim();
-        const modelNames = [...new Set([primaryModel, fallbackModel].filter(
-            (name): name is string => Boolean(name)
-        ))];
-        let usedModel = primaryModel;
-        let result: Awaited<ReturnType<ReturnType<typeof createModel>["generateContent"]>> | null = null;
-        let lastError: unknown;
-
-        for (const modelName of modelNames) {
-            for (let attempt = 0; attempt < 3; attempt++) {
-                if (req.signal.aborted) {
-                    return Response.json({ error: "Proposal request cancelled" }, { status: 499 });
-                }
-                try {
-                    result = await createModel(modelName).generateContent(prompt);
-                    usedModel = modelName;
-                    break;
-                } catch (error: unknown) {
-                    lastError = error;
-                    const status = error && typeof error === "object" && "status" in error
-                        ? Number(error.status) : 0;
-                    // Recover only from temporary provider errors. Quota and
-                    // authentication errors are returned immediately.
-                    if (![500, 503, 504].includes(status)) throw error;
-                    if (attempt < 2) {
-                        const delay = 1000 * 2 ** attempt + Math.floor(Math.random() * 250);
-                        await new Promise<void>(resolve => setTimeout(resolve, delay));
+                        required: ["relevant", "proposal", "reason"]
                     }
                 }
             }
-            if (result) break;
+        });
+        let completion: any = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            if (req.signal.aborted) {
+                return Response.json({ error: "Proposal request cancelled" }, { status: 499 });
+            }
+            const controller = new AbortController();
+            let timedOut = false;
+            const onCancel = () => controller.abort();
+            req.signal.addEventListener("abort", onCancel, { once: true });
+            const timeout = setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+            }, 30000);
+            try {
+                const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    signal: controller.signal,
+                    cache: "no-store",
+                    headers: {
+                        Authorization: `Bearer ${apiKey}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: requestBody
+                });
+                const raw = await response.text();
+                let data: any;
+                try {
+                    data = JSON.parse(raw);
+                } catch {
+                    throw Object.assign(new Error("Groq returned a non-JSON response."), { status: response.ok ? 502 : response.status });
+                }
+                if (!response.ok) {
+                    throw Object.assign(new Error(toText(data?.error?.message) || "Groq request failed."), {
+                        status: response.status,
+                        retryAfter: response.headers.get("retry-after")
+                    });
+                }
+                completion = data;
+                break;
+            } catch (error: unknown) {
+                if (req.signal.aborted) {
+                    return Response.json({ error: "Proposal request cancelled" }, { status: 499 });
+                }
+                const failure = timedOut
+                    ? Object.assign(new Error("Groq request timed out."), { status: 504 })
+                    : error;
+                const status = failure && typeof failure === "object" && "status" in failure
+                    ? Number(failure.status) : 0;
+                if (attempt === 1 || ![500, 502, 503, 504].includes(status)) throw failure;
+            } finally {
+                clearTimeout(timeout);
+                req.signal.removeEventListener("abort", onCancel);
+            }
+            await new Promise<void>(resolve => setTimeout(resolve, 1000 + Math.floor(Math.random() * 250)));
         }
-        if (!result) throw lastError;
-        if (req.signal.aborted) {
-            return Response.json({ error: "Proposal request cancelled" }, { status: 499 });
+        stage = "Groq response";
+        const choice = completion?.choices?.[0];
+        if (choice?.finish_reason === "length") {
+            return Response.json({ error: "Groq reached the output token limit. Shorten the prompt or increase max_completion_tokens." }, { status: 502 });
         }
-        stage = "Gemini response";
-        const responseText = result.response.text().trim();
+        const responseText = toText(choice?.message?.content).trim();
         if (!responseText) {
-            return Response.json({
-                error: "Gemini returned an empty response. Please retry."
-            }, { status: 502 });
+            return Response.json({ error: "Groq returned an empty response. Please retry." }, { status: 502 });
         }
         let responseData;
         try {
             responseData = JSON.parse(responseText);
         } catch {
             return Response.json({
-                error: "Gemini returned invalid JSON. Please retry."
+                error: "Groq returned invalid JSON. Please retry."
             }, { status: 502 });
         }
         if (!responseData ||
@@ -239,12 +258,13 @@ export async function POST(req: Request) {
             (responseData.relevant && !responseData.proposal.trim()) ||
             (!responseData.relevant && !responseData.reason.trim())) {
             return Response.json({
-                error: "Gemini returned an incomplete response. Please retry."
+                error: "Groq returned an incomplete response. Please retry."
             }, { status: 502 });
         }
         return Response.json({
             platform: skillName,
-            model: usedModel,
+            model,
+            provider: "Groq",
             promptFor,
             promptId: String(promptData._id),
             relevant: responseData.relevant,
@@ -256,28 +276,29 @@ export async function POST(req: Request) {
         const upstreamStatus = error && typeof error === "object" && "status" in error
             ? Number(error.status) : 0;
         let message = `Proposal generation failed during ${stage}.`;
-        let status = stage.startsWith("Gemini") ? 502 : 500;
-        if (stage.startsWith("Gemini")) {
-            if (upstreamStatus === 429) {
-                message = "Gemini quota or rate limit reached. Check the API project's quota and retry.";
-                status = 429;
-            } else if (upstreamStatus === 401 || upstreamStatus === 403) {
-                message = "Gemini rejected the API credentials or access permissions.";
-            } else if (upstreamStatus === 404) {
-                message = "The configured Gemini model was not found or is unavailable for this API key.";
-            } else if (upstreamStatus === 503) {
-                message = "Gemini is temporarily overloaded. Retries could not complete the proposal. Please try again shortly.";
-                status = 503;
-            } else if (upstreamStatus === 400) {
-                message = "Gemini rejected the request. Check the model configuration and response schema.";
-            }
+        let status = stage.startsWith("Groq") ? 502 : 500;
+        if (upstreamStatus === 429) {
+            message = "Groq rate or token limit reached. Check your Groq limits and retry after the reset.";
+            status = 429;
+        } else if (upstreamStatus === 401 || upstreamStatus === 403) {
+            message = "Groq rejected the API key or model access. Check GROQ_API_KEY.";
+        } else if (upstreamStatus === 400 || upstreamStatus === 404) {
+            message = "Groq rejected the model or request configuration. Use a model supporting strict JSON schema, such as openai/gpt-oss-120b.";
+        } else if (upstreamStatus === 503 || upstreamStatus === 504) {
+            message = "Groq is temporarily unavailable or timed out. Please retry shortly.";
+            status = upstreamStatus;
         }
-        // Log diagnostics only. Never log job data or proposal instructions.
-        console.error("PROPOSAL API ERROR", { stage, upstreamStatus, details });
+        const retryAfter = error && typeof error === "object" && "retryAfter" in error
+            ? toText(error.retryAfter) : "";
+        console.error("GROQ PROPOSAL ERROR", { stage, upstreamStatus, details });
         return Response.json({
             error: process.env.NODE_ENV === "production" ? message : `${message} ${details}`,
             stage,
-            ...(upstreamStatus ? { upstreamStatus } : {})
-        }, { status });
+            ...(upstreamStatus ? { upstreamStatus } : {}),
+            ...(retryAfter ? { retryAfter } : {})
+        }, {
+            status,
+            ...(retryAfter ? { headers: { "Retry-After": retryAfter } } : {})
+        });
     }
 }

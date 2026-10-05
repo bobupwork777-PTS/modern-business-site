@@ -1154,7 +1154,7 @@ export default function UpworkJobsPage() {
                 URL: getJobUrl(job)
             };
 
-            const response = await fetch("/api/analyze", {
+            const response = await fetch("/api/analyze-groq", {
                 signal: controller.signal,
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -2685,93 +2685,73 @@ font-semibold text-blue-700
             </main>
 
 
-            {showModal && (
-                <div
-                    className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-4"
-                    onClick={closeModal}
-                >
-                    <div
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="ai-proposal-title"
-                        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-                        onClick={event => event.stopPropagation()}
-                        onKeyDown={event => {
-                            if (event.key === "Escape") closeModal();
-                        }}
-                    >
-                        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4">
+            {showModal && selectedJob && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4 py-8" onClick={closeModal}>
+                    <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 text-gray-900 shadow-2xl md:p-8" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-start justify-between gap-4">
                             <div>
-                                <h2 id="ai-proposal-title" className="text-lg font-bold text-gray-900">
-                                    Upwork AI Proposal
-                                </h2>
-                                <p className="mt-1 text-sm text-gray-500">{selectedJob?.title}</p>
+                                <p className="text-[11px] font-semibold uppercase tracking-widest text-blue-600">AI Report</p>
+                                <h2 className="mt-1 text-2xl font-bold">AI Opportunity Analysis</h2>
                             </div>
-                            <button
-                                type="button"
-                                aria-label="Close AI proposal"
-                                onClick={closeModal}
-                                className="rounded-md px-2 py-1 text-xl text-gray-500 hover:bg-gray-100 hover:text-gray-900"
-                            >
-                                ×
-                            </button>
+                            <button type="button" onClick={closeModal} className="text-2xl text-gray-500 transition hover:text-black" aria-label="Close">×</button>
                         </div>
 
-                        <div className="overflow-y-auto px-6 py-5" aria-live="polite">
-                            {analyzing ? (
-                                <div role="status" className="flex flex-col items-center gap-4 py-12 text-blue-600">
-                                    <span aria-hidden="true" className="h-10 w-10 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600" />
-                                    <p className="text-sm font-medium">Analyzing the job and generating your proposal...</p>
-                                </div>
-                            ) : aiReport?.error ? (
-                                <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                                    {aiReport.error}
-                                </div>
-                            ) : aiReport ? (
-                                <div className="space-y-5">
-                                    <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${
-                                        aiReport.relevant ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
-                                    }`}>
-                                        {aiReport.relevant ? "Relevant opportunity" : "Not a suitable match"}
-                                    </span>
-                                    {aiReport.reason && (
-                                        <div>
-                                            <h3 className="text-sm font-semibold text-gray-900">Analysis</h3>
-                                            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-700">{aiReport.reason}</p>
-                                        </div>
-                                    )}
-                                    {aiReport.proposal ? (
-                                        <div>
-                                            <h3 className="text-sm font-semibold text-gray-900">Proposal</h3>
-                                            <div className="mt-2 select-text whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-7 text-gray-800">
-                                                {aiReport.proposal}
-                                            </div>
-                                        </div>
-                                    ) : aiReport.relevant ? (
-                                        <p className="text-sm text-amber-700">The response did not contain a proposal. Please retry.</p>
-                                    ) : null}
-                                    {proposalCopyError && <p role="alert" className="text-sm text-red-600">{proposalCopyError}</p>}
-                                </div>
-                            ) : (
-                                <p className="text-sm text-gray-500">No analysis result received. Please retry.</p>
-                            )}
-                        </div>
+                        <h3 className="mt-5 text-base font-semibold">{selectedJob.title || "Untitled Job"}</h3>
+                        <p className="mt-1 text-xs text-gray-500">{getBudget(selectedJob)}</p>
 
-                        <div className="flex flex-wrap justify-end gap-2 border-t border-gray-200 px-6 py-4">
-                            <button type="button" onClick={closeModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-                                Close
-                            </button>
-                            {!analyzing && selectedJob && (
-                                <button type="button" onClick={() => void analyzeJob(selectedJob)} className="rounded-lg border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50">
-                                    Retry
-                                </button>
-                            )}
-                            {!analyzing && !aiReport?.error && aiReport?.proposal && (
-                                <button type="button" onClick={() => void copyProposal()} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-                                    {proposalCopied ? "Copied" : "Copy proposal"}
-                                </button>
-                            )}
-                        </div>
+                        {analyzing ? (
+                            <div className="py-14 text-center">
+                                <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
+                                <p className="mt-4 font-medium text-blue-600">AI is analyzing this opportunity...</p>
+                                <p className="mt-1 text-xs text-gray-500">Reviewing the scope, skills, pain points and opportunity fit.</p>
+                            </div>
+                        ) : aiReport?.error ? (
+                            <div className="mt-6 rounded-xl bg-red-50 p-4 text-sm text-red-700">{aiReport.error}</div>
+                        ) : aiReport ? (
+                            <div className="mt-6">
+                                {!aiReport.relevant ? (
+                                    <div className="rounded-xl bg-yellow-50 p-5 text-yellow-700">
+                                        <h3 className="font-bold">Not Recommended</h3>
+                                        <p className="mt-2 text-sm">{aiReport.reason}</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="rounded-xl bg-blue-50 p-5">
+                                            <h3 className="text-lg font-bold text-blue-700">Generated Proposal</h3>
+                                            <p className="mt-3 whitespace-pre-line text-sm leading-6 text-gray-700">{aiReport.proposal}</p>
+                                        </div>
+
+                                        <div className="mt-4 flex flex-wrap gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    try {
+                                                        await navigator.clipboard.writeText(aiReport.proposal || "");
+                                                        alert("Proposal copied!");
+                                                    } catch (err) {
+                                                        console.error("Copy failed:", err);
+                                                    }
+                                                }}
+                                                className="rounded-full bg-black px-5 py-2.5 text-sm text-white transition hover:bg-gray-800"
+                                            >
+                                                Copy Proposal
+                                            </button>
+
+                                            {getJobUrl(selectedJob) && (
+                                                <a
+                                                    href={getJobUrl(selectedJob)}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="rounded-full bg-blue-600 px-5 py-2.5 text-sm text-white transition hover:bg-blue-700"
+                                                >
+                                                    Open Job URL
+                                                </a>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             )}
