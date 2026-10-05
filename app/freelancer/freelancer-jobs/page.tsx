@@ -17,7 +17,7 @@ type Job = {
     description?: string;
     ciphertext?: string;
     url?: string;
-    applied?: boolean;
+    applied?: boolean | null;
     premium?: boolean;
     isFeatured?: boolean;
     isRecruiter?: ProjectBadgeFlag;
@@ -389,9 +389,9 @@ export default function FreelancerJobsPage() {
                 if (!response.ok || !data?.success) {
                     throw new Error(
                         typeof data?.message === "string" ? data.message :
-                        typeof data?.error === "string" ? data.error :
-                        data?.error?.[0]?.message || data?.error?.message ||
-                        "Unable to search Freelancer jobs."
+                            typeof data?.error === "string" ? data.error :
+                                data?.error?.[0]?.message || data?.error?.message ||
+                                "Unable to search Freelancer jobs."
                     );
                 }
                 if (!Array.isArray(data.jobs)) {
@@ -774,10 +774,15 @@ export default function FreelancerJobsPage() {
         return [...labels];
     }
 
+    function getApplicationLabel(job: Job) {
+        if (job.applied === true) return "Applied";
+        return "Not applied";
+    }
+
     function getStatusLabels(job: Job) {
         return [
             ...(job.projectStatus ? [job.projectStatus] : []),
-            ...(job.applied ? ["Applied"] : []),
+            getApplicationLabel(job),
             ...getProjectBadgeLabels(job),
             ...(isPreviousClientJob(job) ? ["Previous Client"] : [])
         ];
@@ -785,7 +790,8 @@ export default function FreelancerJobsPage() {
 
     function getStatusBadgeClass(label: string) {
         switch (label) {
-            case "Applied": return "bg-green-50 text-green-700";
+            case "Applied": return "bg-green-100 text-green-700";
+            case "Not applied": return "bg-gray-100 text-gray-600";
             case "Recruiter": return "bg-purple-600 text-white";
             case "Featured": return "bg-amber-50 text-amber-700";
             case "NDA": return "bg-blue-600 text-white";
@@ -812,7 +818,8 @@ export default function FreelancerJobsPage() {
     }
 
     function getStatusSortValue(job: Job) {
-        return (job.applied ? 100 : 0) + (isPreviousClientJob(job) ? 10 : 0) + getProjectBadgeLabels(job).length;
+        const applicationRank = job.applied === true ? 2 : job.applied === false ? 1 : 0;
+        return applicationRank;
     }
 
     function compareText(a: string, b: string) {
@@ -1206,7 +1213,8 @@ export default function FreelancerJobsPage() {
 
                 switch (sortColumn) {
                     case "status":
-                        comparison = compareText(a.job.projectStatus || "", b.job.projectStatus || "") || getStatusSortValue(a.job) - getStatusSortValue(b.job);
+                        comparison = getStatusSortValue(a.job) - getStatusSortValue(b.job) ||
+                            compareText(a.job.projectStatus || "", b.job.projectStatus || "");
                         break;
 
                     case "preferredAttributes":
@@ -1513,6 +1521,17 @@ export default function FreelancerJobsPage() {
                                             <div className="flex max-h-[92px] flex-wrap gap-1.5 overflow-y-auto pr-1">
                                                 <button
                                                     type="button"
+                                                    onClick={() => {
+                                                        setSelectedCountries([]);
+                                                        setCurrentPage(1);
+                                                    }}
+                                                    disabled={optionsLoading || selectedCountries.length === 0}
+                                                    className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                                >
+                                                    Deselect all countries
+                                                </button>
+                                                <button
+                                                    type="button"
                                                     onClick={() => toggleCountry("ALL")}
                                                     disabled={optionsLoading || countryOptions.length === 0}
                                                     className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${allCountriesSelected
@@ -1522,6 +1541,7 @@ export default function FreelancerJobsPage() {
                                                 >
                                                     ALL
                                                 </button>
+
                                                 {optionsLoading ? (
                                                     <span className="text-[11px] text-gray-400">
                                                         Loading countries...
@@ -1724,6 +1744,18 @@ export default function FreelancerJobsPage() {
                                         <span className="text-[12px] text-gray-500 mr-1">
                                             Quick search:
                                         </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedSkills([]);
+                                                setSearchMode(null);
+                                                setCurrentPage(1);
+                                            }}
+                                            disabled={optionsLoading || selectedSkills.length === 0}
+                                            className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[12px] font-medium text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                            Deselect all skills
+                                        </button>
                                         {skillOptions.map(skill => {
                                             const group = getSkillGroup(skill);
                                             const selected =
@@ -1925,25 +1957,42 @@ font-semibold text-blue-700
                             </div>
                         </div>
 
-                        <div className="w-full overflow-x-auto">
-                            <table className="w-full min-w-[1900px] table-fixed border-collapse text-[11px]"><style>{`td,th{overflow:hidden;text-overflow:ellipsis;} .break-cell{white-space:normal;word-break:break-word;}`}</style>
+                        <div className="w-full min-w-0">
+                            <table className="freelancer-jobs-table w-full table-fixed border-collapse text-[11px]">
+                                <style>{`
+                                    .freelancer-jobs-table th,
+                                    .freelancer-jobs-table td {
+                                        overflow: hidden;
+                                        text-overflow: ellipsis;
+                                        white-space: normal;
+                                        overflow-wrap: anywhere;
+                                    }
+                                    .freelancer-jobs-table button,
+                                    .freelancer-jobs-table a,
+                                    .freelancer-jobs-table td div {
+                                        min-width: 0;
+                                        max-width: 100%;
+                                        white-space: normal;
+                                        overflow-wrap: anywhere;
+                                    }
+                                `}</style>
                                 <colgroup>
-                                    <col className="w-[3%]" />
-                                    <col className="w-[8%]" />
-                                    <col className="w-[4%]" />
-                                    <col className="w-[8%]" />
-                                    <col className="w-[15%]" />
-                                    <col className="w-[5%]" />
-                                    <col className="w-[5%]" />
-                                    <col className="w-[6%]" />
-                                    <col className="w-[5%]" />
-                                    <col className="w-[5%]" />
-                                    <col className="w-[3%]" />
-                                    <col className="w-[5%]" />
-                                    <col className="w-[3%]" />
-                                    <col className="w-[5%]" />
-                                    <col className="w-[5%]" />
-                                    <col className="w-[7%]" />
+                                    <col style={{ width: "4%" }} />
+                                    <col style={{ width: "7%" }} />
+                                    <col style={{ width: "4%" }} />
+                                    <col style={{ width: "11%" }} />
+                                    <col style={{ width: "17%" }} />
+                                    <col style={{ width: "4%" }} />
+                                    <col style={{ width: "5%" }} />
+                                    <col style={{ width: "5%" }} />
+                                    <col style={{ width: "6%" }} />
+                                    <col style={{ width: "6%" }} />
+                                    <col style={{ width: "5%" }} />
+                                    <col style={{ width: "3%" }} />
+                                    <col style={{ width: "3%" }} />
+                                    <col style={{ width: "6%" }} />
+                                    <col style={{ width: "7%" }} />
+                                    <col style={{ width: "7%" }} />
                                 </colgroup>
 
                                 <thead className="bg-[#F8FAFC]">
@@ -1957,9 +2006,6 @@ font-semibold text-blue-700
                                                 Status <span className="text-[10px]">{getSortIndicator("status")}</span>
                                             </button>
                                         </th>
-                                        {/* <th className={thClass}>
-                                            Preferred Attributes
-                                        </th> */}
                                         <th
                                             className={thClass}
                                             aria-sort={
@@ -2029,7 +2075,7 @@ font-semibold text-blue-700
                                             <button
                                                 type="button"
                                                 onClick={() => handleColumnSort("feedback")}
-                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                                className="inline-flex w-full items-center justify-center gap-1 text-center hover:text-blue-600"
                                             >
                                                 Fdbk <span className="text-[10px]">{getSortIndicator("feedback")}</span>
                                             </button>
@@ -2038,7 +2084,7 @@ font-semibold text-blue-700
                                             <button
                                                 type="button"
                                                 onClick={() => handleColumnSort("applicants")}
-                                                className="inline-flex items-center gap-1 hover:text-blue-600"
+                                                className="inline-flex w-full items-center justify-center gap-1 text-center hover:text-blue-600"
                                             >
                                                 Bids <span className="text-[10px]">{getSortIndicator("applicants")}</span>
                                             </button>
@@ -2065,7 +2111,7 @@ font-semibold text-blue-700
                                 <tbody>
                                     {!hasSearched ? (
                                         <tr>
-                                            <td colSpan={18} className="py-12 text-center">
+                                            <td colSpan={16} className="py-12 text-center">
                                                 <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center mx-auto">
                                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-600">
                                                         <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
@@ -2077,7 +2123,7 @@ font-semibold text-blue-700
                                         </tr>
                                     ) : loading ? (
                                         <tr>
-                                            <td colSpan={18} className="py-12 text-center">
+                                            <td colSpan={16} className="py-12 text-center">
                                                 <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto" />
                                                 <h3 className="mt-2 text-sm font-semibold text-gray-800">Searching Freelancer...</h3>
                                                 <p className="text-gray-400 text-[12px] mt-1">Fetching latest opportunities.</p>
@@ -2085,7 +2131,7 @@ font-semibold text-blue-700
                                         </tr>
                                     ) : displayedJobs.length === 0 ? (
                                         <tr>
-                                            <td colSpan={18} className="py-12 text-center">
+                                            <td colSpan={16} className="py-12 text-center">
                                                 <h3 className="text-gray-800 text-sm font-semibold">No jobs found</h3>
                                                 <p className="text-gray-400 text-[12px] mt-1">Try searching another keyword.</p>
                                             </td>
@@ -2113,6 +2159,14 @@ font-semibold text-blue-700
                                                         >
                                                             {job.projectStatus || "N/A"}
                                                         </span>
+                                                        <span
+                                                            title={job.applied == null
+                                                                ? "Application status could not be verified for the connected Freelancer account."
+                                                                : "Application status for the connected Freelancer account."}
+                                                            className={`mt-1 block rounded-md px-1 py-1 text-center text-[10px] font-semibold ${getStatusBadgeClass(getApplicationLabel(job))}`}
+                                                        >
+                                                            {getApplicationLabel(job)}
+                                                        </span>
                                                     </td>
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col items-start gap-1">
@@ -2130,7 +2184,7 @@ font-semibold text-blue-700
                                                             )}
                                                         </div>
                                                     </td>
-                                                    <td className="px-1.5 py-2 align-top text-[11px] leading-[15px] text-red-500 whitespace-normal">
+                                                    <td className="px-1.5 py-2 align-top text-center text-[11px] leading-[15px] text-red-500 whitespace-normal">
                                                         {getElapsedTime(job.publishedDateTime)}
                                                     </td>
 

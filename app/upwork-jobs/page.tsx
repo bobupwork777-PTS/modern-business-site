@@ -2285,7 +2285,8 @@ font-semibold text-blue-700
                         </div>
 
                         <div className="w-full overflow-hidden">
-                            <table className="w-full table-fixed border-collapse text-[11px]"><style>{`td,th{overflow:hidden;text-overflow:ellipsis;} .break-cell{white-space:normal;word-break:break-word;}`}</style>
+                            <table className="w-full table-fixed border-collapse text-[11px]">
+                                <style>{`td,th{overflow:hidden;text-overflow:ellipsis;} .break-cell{white-space:normal;word-break:break-word;}`}</style>
                                 <colgroup>
                                     <col className="w-[4%]" />
                                     <col className="w-[8%]" />
