@@ -94,7 +94,6 @@ type Job = {
 };
 
 type AIReport = { relevant: boolean; proposal?: string; reason?: string; error?: string };
-type PageInfo = { endCursor: string | null; hasNextPage: boolean };
 type PaymentFilter = "all" | "verified" | "unverified";
 type SortColumn = "status" | "preferredAttributes" | "elapsed" | "country" | "feedback" | "applicants" | "proposals" | "verified" | "budget" | "published" | "averageBid" | "memberSince";
 type SortDirection = "desc" | "asc";
@@ -152,7 +151,6 @@ export default function FreelancerJobsPage() {
     const [search, setSearch] = useState("");
     const [searchMode, setSearchMode] = useState<"manual" | "quick" | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
-    const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
     const searchAbortRef = useRef<AbortController | null>(null);
     const [copiedDescriptionId, setCopiedDescriptionId] = useState<string | null>(null);
@@ -189,8 +187,6 @@ export default function FreelancerJobsPage() {
     const [showModal, setShowModal] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
-    const [pageInfo, setPageInfo] = useState<PageInfo>({ endCursor: null, hasNextPage: false });
-    const [pageCursors, setPageCursors] = useState<Record<number, string>>({ 1: "0" });
     const [skillOptions, setSkillOptions] = useState<string[]>([]);
     const [countryOptions, setCountryOptions] = useState<string[]>([]);
     const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
@@ -320,359 +316,111 @@ export default function FreelancerJobsPage() {
         }
     }
 
+    // Fetch every API page before filtering or paginating the table.
+    // Keep the existing arguments so manual, quick and saved searches still work.
     async function searchJobs(
-        page = 1,
-        cursor = "0",
+        _page = 1,
+        _cursor = "0",
         keyword?: string,
-        previousClientFirstOverride?: boolean,
+        _previousClientFirstOverride?: boolean,
         selectedSkillsOverride?: string[],
         filterOverride?: SavedFilter
     ) {
-
-        const searchKeyword = (
-            keyword ??
-            search
-        ).trim() ||
-            "";
-
+        const searchKeyword = (keyword ?? search).trim();
         const activeKeyword =
             keyword !== undefined || searchMode === "quick" || searchMode === "manual"
                 ? searchKeyword
                 : "";
-
-        const prioritizePreviousClient = previousClientFirstOverride ?? previousClientFirst;
+        const activeSkills = selectedSkillsOverride ?? filterOverride?.skills ?? selectedSkills;
 
         searchAbortRef.current?.abort();
         const controller = new AbortController();
         searchAbortRef.current = controller;
+        const isCurrentSearch = () =>
+            !controller.signal.aborted && searchAbortRef.current === controller;
+
+        setHasSearched(true);
+        setLoading(true);
+        setError("");
+        setCurrentPage(1);
+        setJobs([]);
 
         try {
+            // Country, payment, bids and date filters are applied locally AFTER
+            // fetching all pages. Sending them here can make a server that filters
+            // one raw page report an incomplete result set.
+            const params = new URLSearchParams({
+                q: activeKeyword,
+                first: String(PAGE_SIZE),
+                after: "0"
+            });
+            if (activeSkills.length) params.set("skills", activeSkills.join(","));
 
-            setHasSearched(true);
-            setLoading(true);
-            setError("");
+            const allJobs: Job[] = [];
+            const seenJobIds = new Set<string>();
+            const visitedCursors = new Set<string>();
+            let cursor = "0";
 
-            const params =
-                new URLSearchParams({
-                    q: activeKeyword,
+            while (true) {
+                if (!isCurrentSearch()) return;
+                if (visitedCursors.has(cursor)) {
+                    throw new Error("The API repeated a page cursor. Search could not load all results.");
+                }
+                visitedCursors.add(cursor);
+                params.set("after", cursor);
 
-                    first:
-                        String(
-                            PAGE_SIZE
-                        ),
-
-                    after: cursor
+                const response = await fetch(`/api/freelancer/jobs?${params.toString()}`, {
+                    method: "GET",
+                    cache: "no-store",
+                    signal: controller.signal,
+                    headers: { Accept: "application/json" }
                 });
-
-            const activeCountries = filterOverride?.countries ?? selectedCountries;
-            const activePayment = filterOverride?.paymentVerified ?? paymentVerified;
-            const activeApplicants = filterOverride?.applicantRange ?? applicantRange;
-            const activePostedDays = filterOverride?.postedDays ?? postedDays;
-            if (activeCountries.length) {
-                params.set("countries", activeCountries.join(","));
-            }
-
-            const activeSkills =
-                selectedSkillsOverride ??
-                selectedSkills;
-
-            if (activeSkills.length) {
-                params.set("skills", activeSkills.join(","));
-            }
-
-            if (
-                activePayment !== "all") {
-                params.set("paymentVerified", activePayment);
-            }
-
-            if (
-                activeApplicants !== "all") {
-                params.set("applicants", activeApplicants);
-            }
-
-            if (activePostedDays !== "all") {
-                params.set("postedDays", activePostedDays);
-            }
-
-            if (prioritizePreviousClient) {
-                params.set("previousClient", "true");
-            }
-            const response =
-                await fetch(`/api/freelancer/jobs?${params.toString()}`,
-                    {
-                        method: "GET",
-                        cache: "no-store",
-                        signal: controller.signal,
-                        headers: {
-                            Accept:
-                                "application/json"
-                        }
-                    }
-                );
-
-
-
-            const contentType =
-                response.headers.get(
-                    "content-type"
-                ) || "";
-
-            const raw = await response.text();
-
-            // Ignore canceled requests and responses superseded by a newer search.
-            if (controller.signal.aborted || searchAbortRef.current !== controller) {
-                return;
-            }
-
-            let data: any = {};
-
-            if (raw.trim().startsWith("<")) {
-
-                console.error("FREELANCER JOB API RETURNED HTML:",
-                    {
-                        status: response.status,
-                        contentType,
-                        preview: raw.slice(
-                            0,
-                            500
-                        )
-                    }
-                );
-
-                throw new Error(
-                    `Freelancer API returned HTML instead of JSON (${response.status}). Check the server console.`
-                );
-            }
-
-            if (raw) {
-
+                const raw = await response.text();
+                if (!isCurrentSearch()) return;
+                let data: any;
                 try {
                     data = JSON.parse(raw);
                 } catch {
-
-                    console.error(
-                        "INVALID JOB API RESPONSE:",
-                        raw.slice(
-                            0,
-                            500
-                        )
-                    );
-
+                    throw new Error(`Freelancer API returned an invalid response (${response.status}).`);
+                }
+                if (data?.reauthRequired === true || data?.error === "FREELANCER_REAUTH_REQUIRED") {
+                    throw new Error(data?.reauthReason || "Please reconnect your Freelancer account.");
+                }
+                if (!response.ok || !data?.success) {
                     throw new Error(
-                        `Invalid API response (${response.status})`
+                        typeof data?.message === "string" ? data.message :
+                        typeof data?.error === "string" ? data.error :
+                        data?.error?.[0]?.message || data?.error?.message ||
+                        "Unable to search Freelancer jobs."
                     );
                 }
-            }
-
-            /*
-             * Freelancer authorization genuinely
-             * needs to be renewed.
-             */
-            if (
-                data?.reauthRequired ===
-                true ||
-
-                data?.error ===
-                "FREELANCER_REAUTH_REQUIRED"
-            ) {
-
-                console.warn(
-                    "FREELANCER AUTHORIZATION REQUIRED:",
-                    data
-                );
-
-                if (page === 1) {
-
-                    setJobs([]);
-                    setTotal(0);
-                    setCurrentPage(1);
-
-                    setPageInfo({
-                        endCursor:
-                            null,
-
-                        hasNextPage:
-                            false
-                    });
-
-                    setPageCursors({
-                        1:
-                            "0"
-                    });
+                if (!Array.isArray(data.jobs)) {
+                    throw new Error("The API returned an invalid jobs list.");
                 }
-
-                setError(
-                    data?.reauthReason ||
-                    data?.message ||
-                    "Freelancer authorization is required."
-                );
-
-                return;
-            }
-
-            if (
-                !response.ok ||
-                !data?.success
-            ) {
-
-                let message =
-                    "Unable to search Freelancer jobs";
-
-                if (
-                    typeof data?.message ===
-                    "string" &&
-                    data.message
-                ) {
-
-                    message =
-                        data.message;
-
-                } else if (
-                    typeof data?.error ===
-                    "string" &&
-                    data.error
-                ) {
-
-                    message =
-                        data.error;
-
-                } else if (
-                    Array.isArray(
-                        data?.error
-                    )
-                ) {
-
-                    message =
-                        data.error?.[0]
-                            ?.message ||
-                        message;
-
-                } else if (
-                    data?.error?.message
-                ) {
-
-                    message =
-                        data.error.message;
-                }
-
-                throw new Error(
-                    message
-                );
-            }
-
-            // console.log("Freelancer jobs:", data.jobs);
-
-            const nextInfo:
-                PageInfo = {
-
-                endCursor:
-                    data?.pageInfo
-                        ?.endCursor ||
-                    null,
-
-                hasNextPage:
-                    data?.pageInfo
-                        ?.hasNextPage ===
-                    true
-            };
-
-            setSearch(
-                searchKeyword
-            );
-
-            setJobs(
-                Array.isArray(
-                    data?.jobs
-                )
-                    ? data.jobs
-                    : []
-            );
-
-            setTotal(
-                Number(
-                    data?.total ??
-                    data?.totalCount ??
-                    0
-                )
-            );
-
-            setCurrentPage(
-                page
-            );
-
-            setPageInfo(
-                nextInfo
-            );
-
-            setPageCursors(
-                previous => {
-
-                    const updated:
-                        Record<number, string> =
-
-                        page === 1
-
-                            ? {
-                                1:
-                                    "0"
-                            }
-
-                            : {
-                                ...previous
-                            };
-
-                    if (
-                        nextInfo.endCursor
-                    ) {
-
-                        updated[
-                            page + 1
-                        ] =
-                            nextInfo.endCursor;
+                for (const job of data.jobs as Job[]) {
+                    const id = String(job.id);
+                    if (!seenJobIds.has(id)) {
+                        seenJobIds.add(id);
+                        allJobs.push(job);
                     }
-
-                    return updated;
                 }
-            );
 
+                // The API must describe the raw search pages, before local filters.
+                if (data.pageInfo?.hasNextPage !== true) break;
+                const nextCursor = data.pageInfo?.endCursor;
+                if (nextCursor == null || String(nextCursor) === "") {
+                    throw new Error("The API did not return the next page cursor.");
+                }
+                cursor = String(nextCursor);
+            }
+
+            if (!isCurrentSearch()) return;
+            setSearch(searchKeyword);
+            setJobs(allJobs);
+            setCurrentPage(1);
         } catch (err) {
-            if (controller.signal.aborted || searchAbortRef.current !== controller) {
-                return;
-            }
-
-            console.error(
-                "Freelancer Search Error:",
-                err
-            );
-
-            if (
-                page === 1
-            ) {
-
-                setJobs([]);
-                setTotal(0);
-                setCurrentPage(1);
-
-                setPageInfo({
-                    endCursor:
-                        null,
-
-                    hasNextPage:
-                        false
-                });
-
-                setPageCursors({
-                    1:
-                        "0"
-                });
-            }
-
-            setError(
-                err instanceof Error
-                    ? err.message
-                    : "Something went wrong"
-            );
-
+            if (!isCurrentSearch()) return;
+            setError(err instanceof Error ? err.message : "Unable to load all jobs.");
         } finally {
             if (searchAbortRef.current === controller) {
                 searchAbortRef.current = null;
@@ -681,16 +429,15 @@ export default function FreelancerJobsPage() {
         }
     }
 
-    async function goToNextPage() {
-        if (loading || !pageInfo.hasNextPage || !pageInfo.endCursor) return;
-        await searchJobs(currentPage + 1, pageInfo.endCursor);
+    function goToNextPage() {
+        if (loading || currentPage >= totalPages) return;
+        setCurrentPage(page => Math.min(page + 1, totalPages));
         window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
-    async function goToPreviousPage() {
+    function goToPreviousPage() {
         if (loading || currentPage <= 1) return;
-        const previousPage = currentPage - 1;
-        await searchJobs(previousPage, pageCursors[previousPage] ?? "0");
+        setCurrentPage(page => Math.max(1, page - 1));
         window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
@@ -702,9 +449,6 @@ export default function FreelancerJobsPage() {
 
         setSelectedSkills(skills);
 
-        setPageCursors({
-            1: "0"
-        });
 
         void searchJobs(
             1,
@@ -772,7 +516,6 @@ export default function FreelancerJobsPage() {
         setPostedDays(filter.postedDays);
         setSearch(filter.search);
         setSearchMode(filter.skills.length ? "quick" : "manual");
-        setPageCursors({ 1: "0" });
         void searchJobs(1, "0", filter.search, undefined, filter.skills, filter);
     }
 
@@ -836,13 +579,8 @@ export default function FreelancerJobsPage() {
         return sortDirection === "desc" ? "↓" : "↑";
     }
 
-    async function handlePreviousClientFirstChange(checked: boolean) {
+    function handlePreviousClientFirstChange(checked: boolean) {
         setPreviousClientFirst(checked);
-
-        if (hasSearched) {
-            setPageCursors({ 1: "0" });
-            await searchJobs(1, "0", undefined, checked);
-        }
     }
 
     function openAddOptionModal() {
@@ -1097,7 +835,6 @@ export default function FreelancerJobsPage() {
     }
 
     async function analyzeJob(job: Job) {
-
         analysisAbortRef.current?.abort();
         const controller = new AbortController();
         analysisAbortRef.current = controller;
@@ -1106,104 +843,100 @@ export default function FreelancerJobsPage() {
         setAnalyzing(true);
         setAiReport(null);
 
-
-        const activity = [
-            `Proposals: ${getProposalRange(job.totalApplicants)}`,
-            `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
-            `Invites: ${job.activity?.invitesSent ?? 0}`,
-            `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`,
-            `Hired: ${job.activity?.totalHired ?? 0}`
-        ].join(", ");
-
-        let skill = "";
-
-        const title = (job.title || "").toLowerCase();
-        const description = (job.description || "").toLowerCase();
-
-
-        if (
-            title.includes("wix") ||
-            description.includes("wix")
-        ) {
-            skill = "Wix";
-        }
-        else if (
-            title.includes("webflow") ||
-            description.includes("webflow")
-        ) {
-            skill = "Webflow";
-        }
-        else if (
-            title.includes("shopify") ||
-            description.includes("shopify")
-        ) {
-            skill = "Shopify";
-        }
-        else if (
-            title.includes("framer") ||
-            description.includes("framer")
-        ) {
-            skill = "Framer";
-        }
-        else if (
-            title.includes("illustration") ||
-            description.includes("illustration")
-        ) {
-            skill = "Illustration";
-        }
-        else if (
-            title.includes("next.js") ||
-            description.includes("next.js")
-        ) {
-            skill = "next.js";
-        }
-        const analysisJob = {
-            Skill: skill,
-            Title: job.title || "Untitled Job",
-            Description: job.description || "",
-            Budget: getBudget(job),
-            Status: getStatusText(job),
-            PublishedDate: formatDate(job.publishedDateTime),
-            Activity: activity,
-            URL: getJobUrl(job)
-        };
-
         try {
-            const response =
-                await fetch("/api/analyze",
-                    {
-                        signal: controller.signal,
-                        method: "POST",
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
-                        body:
-                            JSON.stringify({
-                                job: analysisJob
-                            })
-                    }
-                );
-
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(
-                    data.error ||
-                    "AI analysis failed"
-                );
+            // Select the platform and skill BEFORE requesting a proposal.
+            const promptResponse = await fetch("/api/prompts", {
+                cache: "no-store",
+                signal: controller.signal
+            });
+            const promptData = await promptResponse.json();
+            if (!promptResponse.ok) {
+                throw new Error(promptData?.error || "Unable to load proposal prompts.");
             }
-            if (analysisAbortRef.current === controller && !controller.signal.aborted) setAiReport(data);
-        }
-        catch (err) {
             if (controller.signal.aborted || analysisAbortRef.current !== controller) return;
-            console.error("Analyze error:", err);
+
+            type ProposalPrompt = {
+                _id: string;
+                skillId?: string;
+                skillName?: string;
+                promptFor?: string;
+                prompt?: string;
+                active?: boolean;
+            };
+            const prompts: ProposalPrompt[] = Array.isArray(promptData)
+                ? promptData
+                : Array.isArray(promptData?.prompts) ? promptData.prompts : [];
+            const normalize = (value: string) => value.trim().toLowerCase();
+            const availablePrompts = prompts.filter(item =>
+                item.promptFor === "Freelancer" &&
+                item.active === true &&
+                typeof item.prompt === "string" && item.prompt.trim().length > 0
+            );
+            // Match selected search skills in their existing order. If none are
+            // selected, an exact skill entered in the search box can be used.
+            const searchSkills = selectedSkills.length
+                ? selectedSkills
+                : search.trim() ? [search.trim()] : [];
+            if (!searchSkills.length) {
+                throw new Error("Select a search skill before generating an AI proposal.");
+            }
+            let matchedPrompt: ProposalPrompt | undefined;
+            for (const searchSkill of searchSkills) {
+                matchedPrompt = availablePrompts.find(item =>
+                    normalize(item.skillId || item.skillName || "") === normalize(searchSkill)
+                );
+                if (matchedPrompt) break;
+            }
+            if (!matchedPrompt) {
+                throw new Error(`No active Freelancer prompt matches these search skills: ${searchSkills.join(", ")}.`);
+            }
+
+            const skill = matchedPrompt.skillId || matchedPrompt.skillName || "";
+            const activity = [
+                `Proposals: ${getProposalRange(job.bidCount ?? job.totalApplicants)}`,
+                `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
+                `Invites: ${job.activity?.invitesSent ?? 0}`,
+                `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`,
+                `Hired: ${job.activity?.totalHired ?? 0}`
+            ].join(", ");
+            const analysisJob = {
+                Skill: skill,
+                Title: job.title || "Untitled Job",
+                Description: job.description || "",
+                Budget: getBudget(job),
+                Status: getStatusText(job),
+                PublishedDate: formatDate(job.publishedDateTime),
+                Activity: activity,
+                URL: getJobUrl(job)
+            };
+
+            const response = await fetch("/api/analyze", {
+                signal: controller.signal,
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    job: analysisJob,
+                    promptFor: "Freelancer",
+                    skill,
+                    selectedSkills: searchSkills,
+                    promptId: matchedPrompt._id,
+                    prompt: matchedPrompt.prompt
+                })
+            });
+            const data = await response.json();
+            if (!response.ok || data?.error) {
+                throw new Error(data?.error || "AI analysis failed.");
+            }
+            if (analysisAbortRef.current === controller && !controller.signal.aborted) {
+                setAiReport(data);
+            }
+        } catch (err) {
+            if (controller.signal.aborted || analysisAbortRef.current !== controller) return;
             setAiReport({
                 relevant: false,
-                error:
-                    "Unable to analyze this opportunity. Please try again."
+                error: err instanceof Error ? err.message : "Unable to generate this proposal."
             });
-        }
-        finally {
+        } finally {
             if (analysisAbortRef.current === controller) {
                 analysisAbortRef.current = null;
                 setAnalyzing(false);
@@ -1296,104 +1029,7 @@ export default function FreelancerJobsPage() {
         setExporting(true);
 
         try {
-            const params = new URLSearchParams({
-                q:
-                    searchMode === "quick" || searchMode === "manual"
-                        ? search.trim()
-                        : "",
-                first: String(PAGE_SIZE),
-                after: "0"
-            });
-
-            if (selectedCountries.length) {
-                params.set("countries", selectedCountries.join(","));
-            }
-
-            if (selectedSkills.length) {
-                params.set("skills", selectedSkills.join(","));
-            }
-
-            if (paymentVerified !== "all") {
-                params.set("paymentVerified", paymentVerified);
-            }
-
-            if (applicantRange !== "all") {
-                params.set("applicants", applicantRange);
-            }
-
-            if (postedDays !== "all") {
-                params.set("postedDays", postedDays);
-            }
-
-            if (previousClientFirst) {
-                params.set("previousClient", "true");
-            }
-
-            const allJobs: Job[] = [];
-            const seenJobIds = new Set<string>();
-            const visitedCursors = new Set<string>();
-
-            let cursor = "0";
-
-            while (true) {
-                if (visitedCursors.has(cursor)) {
-                    throw new Error("Pagination repeated. Export stopped.");
-                }
-
-                visitedCursors.add(cursor);
-                params.set("after", cursor);
-
-                const response = await fetch(
-                    `/api/freelancer/jobs?${params.toString()}`,
-                    {
-                        method: "GET",
-                        cache: "no-store",
-                        headers: { Accept: "application/json" }
-                    }
-                );
-
-                const result = await response.json();
-
-                if (
-                    !response.ok ||
-                    result.success === false ||
-                    result.error ||
-                    result.reauthRequired === true
-                ) {
-                    throw new Error(
-                        typeof result.error === "string"
-                            ? result.error
-                            : "Unable to fetch all jobs for export."
-                    );
-                }
-
-                if (!Array.isArray(result.jobs)) {
-                    throw new Error("The API returned an invalid jobs list.");
-                }
-
-                for (const job of result.jobs as Job[]) {
-                    const id = String(job.id);
-
-                    if (!seenJobIds.has(id)) {
-                        seenJobIds.add(id);
-                        allJobs.push(job);
-                    }
-                }
-
-                if (result.pageInfo?.hasNextPage !== true) break;
-
-                const nextCursor = result.pageInfo?.endCursor;
-
-                if (nextCursor == null || String(nextCursor) === "") {
-                    throw new Error("The API did not return the next page cursor.");
-                }
-
-                if (result.jobs.length === 0) {
-                    throw new Error("The API returned an empty page before completion.");
-                }
-
-                cursor = String(nextCursor);
-            }
+            const allJobs = sortedJobs;
 
             if (!allJobs.length) {
                 throw new Error("No jobs available to export.");
@@ -1521,11 +1157,48 @@ export default function FreelancerJobsPage() {
         }
     }
 
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const from = total ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
-    const to = total && jobs.length ? from + jobs.length - 1 : 0;
+    function normalizeCountry(value: string) {
+        const country = value.trim().toLowerCase();
+        const aliases: Record<string, string> = {
+            aus: "australia", au: "australia",
+            nz: "new zealand", nzl: "new zealand",
+            can: "canada", ca: "canada",
+            us: "united states", usa: "united states", "united state": "united states",
+            uae: "united arab emirates", ae: "united arab emirates", are: "united arab emirates",
+            uk: "united kingdom", gb: "united kingdom", gbr: "united kingdom",
+            sgp: "singapore", sg: "singapore",
+            zaf: "south africa", za: "south africa",
+            deu: "germany", de: "germany", fra: "france", fr: "france"
+        };
+        return aliases[country] ?? country;
+    }
 
-    const displayedJobs = jobs
+    const selectedCountryNames = new Set(selectedCountries.map(normalizeCountry));
+    const postedCutoff = postedDays === "all"
+        ? null
+        : Date.now() - Number(postedDays) * 24 * 60 * 60 * 1000;
+
+    const filteredJobs = jobs.filter(job => {
+        if (selectedCountryNames.size &&
+            !selectedCountryNames.has(normalizeCountry(getJobCountry(job)))) return false;
+
+        const verified = isVerified(job.client?.verificationStatus);
+        if (paymentVerified === "verified" && !verified) return false;
+        if (paymentVerified === "unverified" && verified) return false;
+
+        if (applicantRange !== "all") {
+            const [min, max] = applicantRange.split("-").map(Number);
+            const bids = job.bidCount ?? job.totalApplicants;
+            if (bids == null || bids < min || bids > max) return false;
+        }
+        if (postedCutoff !== null) {
+            const published = new Date(job.publishedDateTime || job.createdDateTime || "").getTime();
+            if (!Number.isFinite(published) || published < postedCutoff) return false;
+        }
+        return true;
+    });
+
+    const sortedJobs = filteredJobs
         .map((job, index) => ({ job, index }))
         .sort((a, b) => {
             if (sortColumn) {
@@ -1630,6 +1303,27 @@ export default function FreelancerJobsPage() {
             return a.index - b.index;
         })
         .map(item => item.job);
+
+    const total = sortedJobs.length;
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const visiblePage = Math.min(currentPage, totalPages);
+    const displayedJobs = sortedJobs.slice(
+        (visiblePage - 1) * PAGE_SIZE,
+        visiblePage * PAGE_SIZE
+    );
+    const from = total ? (visiblePage - 1) * PAGE_SIZE + 1 : 0;
+    const to = total ? from + displayedJobs.length - 1 : 0;
+
+    // Any filter or sort change starts at the first matching page.
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [selectedCountries, paymentVerified, applicantRange, postedDays,
+        sortColumn, sortDirection, fixedPriceFirst, hourlyPriceFirst, previousClientFirst]);
+
+    useEffect(() => {
+        setCurrentPage(page => Math.min(page, totalPages));
+    }, [totalPages]);
+
 
 
 
@@ -2389,7 +2083,7 @@ font-semibold text-blue-700
                                                 <p className="text-gray-400 text-[12px] mt-1">Fetching latest opportunities.</p>
                                             </td>
                                         </tr>
-                                    ) : jobs.length === 0 ? (
+                                    ) : displayedJobs.length === 0 ? (
                                         <tr>
                                             <td colSpan={18} className="py-12 text-center">
                                                 <h3 className="text-gray-800 text-sm font-semibold">No jobs found</h3>
@@ -2586,7 +2280,7 @@ font-semibold text-blue-700
                             </table>
                         </div>
 
-                        {hasSearched && !loading && jobs.length > 0 && (
+                        {hasSearched && !loading && total > 0 && (
                             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 bg-[#F8FAFC] px-3 py-3">
                                 <p className="text-[11px] text-gray-500">
                                     Showing <span className="font-semibold text-gray-800">{from}</span>–
@@ -2598,20 +2292,20 @@ font-semibold text-blue-700
                                     <button
                                         type="button"
                                         onClick={goToPreviousPage}
-                                        disabled={loading || currentPage <= 1}
+                                        disabled={loading || visiblePage <= 1}
                                         className="h-8 rounded-md border border-gray-300 bg-white px-3 text-[11px] font-semibold text-gray-700 transition hover:border-blue-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
                                     >
                                         ← Previous
                                     </button>
 
                                     <div className="flex h-8 items-center rounded-md border border-blue-200 bg-blue-50 px-3 text-[11px] font-semibold text-blue-700">
-                                        Page {currentPage} of {totalPages}
+                                        Page {visiblePage} of {totalPages}
                                     </div>
 
                                     <button
                                         type="button"
                                         onClick={goToNextPage}
-                                        disabled={loading || !pageInfo.hasNextPage}
+                                        disabled={loading || visiblePage >= totalPages}
                                         className="h-8 rounded-md bg-blue-600 px-3 text-[11px] font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                                     >
                                         Next →

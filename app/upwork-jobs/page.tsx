@@ -137,6 +137,7 @@ export default function UpworkJobsPage() {
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
     const searchAbortRef = useRef<AbortController | null>(null);
+    const analysisAbortRef = useRef<AbortController | null>(null);
     const [copiedDescriptionId, setCopiedDescriptionId] = useState<string | null>(null);
 
     useEffect(() => {
@@ -144,6 +145,9 @@ export default function UpworkJobsPage() {
             const controller = searchAbortRef.current;
             searchAbortRef.current = null;
             controller?.abort();
+            const analysisController = analysisAbortRef.current;
+            analysisAbortRef.current = null;
+            analysisController?.abort();
         };
     }, []);
 
@@ -162,6 +166,8 @@ export default function UpworkJobsPage() {
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
     const [aiReport, setAiReport] = useState<AIReport | null>(null);
+    const [proposalCopied, setProposalCopied] = useState(false);
+    const [proposalCopyError, setProposalCopyError] = useState("");
     const [showModal, setShowModal] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
@@ -1070,109 +1076,115 @@ export default function UpworkJobsPage() {
 
 
     async function analyzeJob(job: Job) {
-
+        analysisAbortRef.current?.abort();
+        const controller = new AbortController();
+        analysisAbortRef.current = controller;
         setSelectedJob(job);
         setShowModal(true);
         setAnalyzing(true);
         setAiReport(null);
-
-
-        const activity = [
-            `Proposals: ${getProposalRange(job.totalApplicants)}`,
-            `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
-            `Invites: ${job.activity?.invitesSent ?? 0}`,
-            `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`,
-            `Hired: ${job.activity?.totalHired ?? 0}`
-        ].join(", ");
-
-        let skill = "";
-
-        const title = (job.title || "").toLowerCase();
-        const description = (job.description || "").toLowerCase();
-
-
-        if (
-            title.includes("Wix") ||
-            description.includes("Wix")
-        ) {
-            skill = "Wix";
-        }
-        else if (
-            title.includes("webflow") ||
-            description.includes("webflow")
-        ) {
-            skill = "Webflow";
-        }
-        else if (
-            title.includes("shopify") ||
-            description.includes("shopify")
-        ) {
-            skill = "Shopify";
-        }
-        else if (
-            title.includes("framer") ||
-            description.includes("framer")
-        ) {
-            skill = "Framer";
-        }
-        else if (
-            title.includes("illustration") ||
-            description.includes("illustration")
-        ) {
-            skill = "Illustration";
-        }
-        else if (
-            title.includes("next.js") ||
-            description.includes("next.js")
-        ) {
-            skill = "next.js";
-        }
-        const analysisJob = {
-            Skill: skill,
-            Title: job.title || "Untitled Job",
-            Description: job.description || "",
-            Budget: getBudget(job),
-            Status: getStatusText(job),
-            PublishedDate: formatDate(job.publishedDateTime),
-            Activity: activity,
-            URL: getJobUrl(job)
-        };
+        setProposalCopied(false);
+        setProposalCopyError("");
 
         try {
-            const response =
-                await fetch("/api/analyze",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
-                        body:
-                            JSON.stringify({
-                                job: analysisJob
-                            })
-                    }
-                );
-
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(
-                    data.error ||
-                    "AI analysis failed"
-                );
+            // Select the platform and skill BEFORE requesting a proposal.
+            const promptResponse = await fetch("/api/prompts", {
+                cache: "no-store",
+                signal: controller.signal
+            });
+            const promptData = await promptResponse.json();
+            if (!promptResponse.ok) {
+                throw new Error(promptData?.error || "Unable to load proposal prompts.");
             }
-            setAiReport(data);
-        }
-        catch (err) {
-            console.error("Analyze error:", err);
+            if (controller.signal.aborted || analysisAbortRef.current !== controller) return;
+
+            type ProposalPrompt = {
+                _id: string;
+                skillId?: string;
+                skillName?: string;
+                promptFor?: string;
+                prompt?: string;
+                active?: boolean;
+            };
+            const prompts: ProposalPrompt[] = Array.isArray(promptData)
+                ? promptData
+                : Array.isArray(promptData?.prompts) ? promptData.prompts : [];
+            const normalize = (value: string) => value.trim().toLowerCase();
+            const availablePrompts = prompts.filter(item =>
+                item.promptFor === "Upwork" &&
+                item.active === true &&
+                typeof item.prompt === "string" && item.prompt.trim().length > 0
+            );
+            // Match selected search skills in their existing order. If none are
+            // selected, an exact skill entered in the search box can be used.
+            const searchSkills = selectedSkills.length
+                ? selectedSkills
+                : search.trim() ? [search.trim()] : [];
+            if (!searchSkills.length) {
+                throw new Error("Select a search skill before generating an AI proposal.");
+            }
+            let matchedPrompt: ProposalPrompt | undefined;
+            for (const searchSkill of searchSkills) {
+                matchedPrompt = availablePrompts.find(item =>
+                    normalize(item.skillId || "") === normalize(searchSkill) ||
+                    normalize(item.skillName || "") === normalize(searchSkill)
+                );
+                if (matchedPrompt) break;
+            }
+            if (!matchedPrompt) {
+                throw new Error(`No active Upwork prompt matches these search skills: ${searchSkills.join(", ")}.`);
+            }
+
+            const skill = matchedPrompt.skillId || matchedPrompt.skillName || "";
+            const activity = [
+                `Proposals: ${getProposalRange(job.totalApplicants)}`,
+                `Interviewing: ${job.activity?.totalInvitedToInterview ?? 0}`,
+                `Invites: ${job.activity?.invitesSent ?? 0}`,
+                `Unanswered: ${job.activity?.totalUnansweredInvites ?? 0}`,
+                `Hired: ${job.activity?.totalHired ?? 0}`
+            ].join(", ");
+            const analysisJob = {
+                Skill: skill,
+                Title: job.title || "Untitled Job",
+                Description: job.description || "",
+                Budget: getBudget(job),
+                Status: getStatusText(job),
+                PublishedDate: formatDate(job.publishedDateTime),
+                Activity: activity,
+                URL: getJobUrl(job)
+            };
+
+            const response = await fetch("/api/analyze", {
+                signal: controller.signal,
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    job: analysisJob,
+                    promptFor: "Upwork",
+                    skill,
+                    selectedSkills: searchSkills,
+                    promptId: matchedPrompt._id,
+                    prompt: matchedPrompt.prompt
+                })
+            });
+            const data = await response.json();
+            if (!response.ok || data?.error) {
+                throw new Error(data?.error || "AI analysis failed.");
+            }
+            if (analysisAbortRef.current === controller && !controller.signal.aborted) {
+                setAiReport(data);
+            }
+        } catch (err) {
+            if (controller.signal.aborted || analysisAbortRef.current !== controller) return;
             setAiReport({
                 relevant: false,
-                error:
-                    "Unable to analyze this opportunity. Please try again."
+                error: err instanceof Error ? err.message : "Unable to generate this proposal."
             });
-        }
-        finally {
-            setAnalyzing(false);
+        } finally {
+            if (analysisAbortRef.current === controller) {
+                analysisAbortRef.current = null;
+                setAnalyzing(false);
+            }
         }
     }
 
@@ -1260,7 +1272,21 @@ export default function UpworkJobsPage() {
         ) : "-";
     }
 
+    async function copyProposal() {
+        if (!aiReport?.proposal) return;
+        try {
+            await navigator.clipboard.writeText(aiReport.proposal);
+            setProposalCopied(true);
+            setProposalCopyError("");
+        } catch {
+            setProposalCopyError("Copy failed. Select the proposal text and copy it manually.");
+        }
+    }
+
     function closeModal() {
+        analysisAbortRef.current?.abort();
+        analysisAbortRef.current = null;
+        setAnalyzing(false);
         setShowModal(false);
         setSelectedJob(null);
         setAiReport(null);
@@ -2658,6 +2684,97 @@ font-semibold text-blue-700
                 </div>
             </main>
 
+
+            {showModal && (
+                <div
+                    className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-4"
+                    onClick={closeModal}
+                >
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="ai-proposal-title"
+                        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+                        onClick={event => event.stopPropagation()}
+                        onKeyDown={event => {
+                            if (event.key === "Escape") closeModal();
+                        }}
+                    >
+                        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4">
+                            <div>
+                                <h2 id="ai-proposal-title" className="text-lg font-bold text-gray-900">
+                                    Upwork AI Proposal
+                                </h2>
+                                <p className="mt-1 text-sm text-gray-500">{selectedJob?.title}</p>
+                            </div>
+                            <button
+                                type="button"
+                                aria-label="Close AI proposal"
+                                onClick={closeModal}
+                                className="rounded-md px-2 py-1 text-xl text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div className="overflow-y-auto px-6 py-5" aria-live="polite">
+                            {analyzing ? (
+                                <div role="status" className="flex flex-col items-center gap-4 py-12 text-blue-600">
+                                    <span aria-hidden="true" className="h-10 w-10 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600" />
+                                    <p className="text-sm font-medium">Analyzing the job and generating your proposal...</p>
+                                </div>
+                            ) : aiReport?.error ? (
+                                <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                                    {aiReport.error}
+                                </div>
+                            ) : aiReport ? (
+                                <div className="space-y-5">
+                                    <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${
+                                        aiReport.relevant ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
+                                    }`}>
+                                        {aiReport.relevant ? "Relevant opportunity" : "Not a suitable match"}
+                                    </span>
+                                    {aiReport.reason && (
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-gray-900">Analysis</h3>
+                                            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-700">{aiReport.reason}</p>
+                                        </div>
+                                    )}
+                                    {aiReport.proposal ? (
+                                        <div>
+                                            <h3 className="text-sm font-semibold text-gray-900">Proposal</h3>
+                                            <div className="mt-2 select-text whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-7 text-gray-800">
+                                                {aiReport.proposal}
+                                            </div>
+                                        </div>
+                                    ) : aiReport.relevant ? (
+                                        <p className="text-sm text-amber-700">The response did not contain a proposal. Please retry.</p>
+                                    ) : null}
+                                    {proposalCopyError && <p role="alert" className="text-sm text-red-600">{proposalCopyError}</p>}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-500">No analysis result received. Please retry.</p>
+                            )}
+                        </div>
+
+                        <div className="flex flex-wrap justify-end gap-2 border-t border-gray-200 px-6 py-4">
+                            <button type="button" onClick={closeModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                                Close
+                            </button>
+                            {!analyzing && selectedJob && (
+                                <button type="button" onClick={() => void analyzeJob(selectedJob)} className="rounded-lg border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50">
+                                    Retry
+                                </button>
+                            )}
+                            {!analyzing && !aiReport?.error && aiReport?.proposal && (
+                                <button type="button" onClick={() => void copyProposal()} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                                    {proposalCopied ? "Copied" : "Copy proposal"}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showSaveFilterModal && (
 
