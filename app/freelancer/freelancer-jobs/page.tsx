@@ -910,7 +910,7 @@ export default function FreelancerJobsPage() {
                 URL: getJobUrl(job)
             };
 
-            const response = await fetch("/api/analyze", {
+            const response = await fetch("/api/analyze-groq", {
                 signal: controller.signal,
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
