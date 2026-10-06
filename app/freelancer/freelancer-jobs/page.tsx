@@ -152,6 +152,8 @@ export default function FreelancerJobsPage() {
     const [searchMode, setSearchMode] = useState<"manual" | "quick" | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
     const [loading, setLoading] = useState(false);
+    const [enriching, setEnriching] = useState(false);
+    const [searchProgress, setSearchProgress] = useState(0);
     const searchAbortRef = useRef<AbortController | null>(null);
     const [copiedDescriptionId, setCopiedDescriptionId] = useState<string | null>(null);
     const descriptionCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -174,6 +176,7 @@ export default function FreelancerJobsPage() {
         searchAbortRef.current = null;
         controller?.abort();
         setLoading(false);
+        setEnriching(false);
     }
     const [error, setError] = useState("");
     const [hasSearched, setHasSearched] = useState(false);
@@ -316,8 +319,7 @@ export default function FreelancerJobsPage() {
         }
     }
 
-    // Fetch every API page before filtering or paginating the table.
-    // Keep the existing arguments so manual, quick and saved searches still work.
+    // Publish every page as it arrives; enrich details without blocking results.
     async function searchJobs(
         _page = 1,
         _cursor = "0",
@@ -326,117 +328,165 @@ export default function FreelancerJobsPage() {
         selectedSkillsOverride?: string[],
         filterOverride?: SavedFilter
     ) {
-        const searchKeyword = (keyword ?? search).trim();
-        const activeKeyword =
-            keyword !== undefined || searchMode === "quick" || searchMode === "manual"
-                ? searchKeyword
-                : "";
+        const searchKeyword = (keyword ?? filterOverride?.search ?? search).trim();
         const activeSkills = selectedSkillsOverride ?? filterOverride?.skills ?? selectedSkills;
-
+        // With text, search the text and match ANY selected skill. Without text,
+        // search each selected skill, then merge results by project ID.
+        const queries = [...new Set((searchKeyword ? [searchKeyword] :
+            activeSkills.length ? activeSkills : [""]).map(q => q.trim()))];
         searchAbortRef.current?.abort();
         const controller = new AbortController();
         searchAbortRef.current = controller;
         const isCurrentSearch = () =>
             !controller.signal.aborted && searchAbortRef.current === controller;
-
         setHasSearched(true);
         setLoading(true);
+        setEnriching(false);
+        setSearchProgress(0);
         setError("");
         setCurrentPage(1);
         setJobs([]);
-
-        try {
-            // Country, payment, bids and date filters are applied locally AFTER
-            // fetching all pages. Sending them here can make a server that filters
-            // one raw page report an incomplete result set.
-            const params = new URLSearchParams({
-                q: activeKeyword,
-                first: String(PAGE_SIZE),
-                after: "0"
-            });
+        const allJobs = new Map<string, Job>();
+        const enrichmentScheduled = new Set<string>();
+        const enrichmentLanes: Promise<void>[] = [Promise.resolve(), Promise.resolve()];
+        let lane = 0;
+        let loadedPages = 0;
+        const warnings = new Set<string>();
+        const publish = () => {
+            if (isCurrentSearch()) setJobs(Array.from(allJobs.values()));
+        };
+        async function readResponse(response: Response) {
+            const raw = await response.text();
+            let data: any;
+            try { data = JSON.parse(raw); }
+            catch { throw new Error(`Freelancer API returned an invalid response (${response.status}).`); }
+            if (data?.reauthRequired === true || data?.error === "FREELANCER_REAUTH_REQUIRED") {
+                throw new Error(data?.reauthReason || "Please reconnect your Freelancer account.");
+            }
+            if (!response.ok || !data?.success) {
+                throw new Error(typeof data?.message === "string" ? data.message :
+                    typeof data?.error === "string" ? data.error : "Unable to search Freelancer jobs.");
+            }
+            if (!Array.isArray(data.jobs)) throw new Error("The API returned an invalid jobs list.");
+            return data;
+        }
+        function scheduleEnrichment(ids: string[]) {
+            for (let start = 0; start < ids.length; start += 8) {
+                const chunk = ids.slice(start, start + 8);
+                const target = lane++ % enrichmentLanes.length;
+                enrichmentLanes[target] = enrichmentLanes[target].then(async () => {
+                    if (!isCurrentSearch()) return;
+                    setEnriching(true);
+                    try {
+                        const params = new URLSearchParams({ mode: "enrich", ids: chunk.join(",") });
+                        const response = await fetch(`/api/freelancer/jobs?${params}`, {
+                            cache: "no-store", signal: controller.signal
+                        });
+                        const data = await readResponse(response);
+                        if (!isCurrentSearch()) return;
+                        for (const details of data.jobs as Job[]) {
+                            const id = String(details.id);
+                            const existing = allJobs.get(id);
+                            if (!existing) continue;
+                            // Do not replace known data with missing enrichment fields.
+                            const mergeDefined = (base: any, update: any): any => {
+                                const result = { ...(base || {}) };
+                                for (const [key, value] of Object.entries(update || {})) {
+                                    if (value == null || value === "") continue;
+                                    result[key] = typeof value === "object" && !Array.isArray(value)
+                                        ? mergeDefined(result[key], value) : value;
+                                }
+                                return result;
+                            };
+                            allJobs.set(id, mergeDefined(existing, details));
+                        }
+                        publish();
+                    } catch (err) {
+                        if (isCurrentSearch()) warnings.add("Some client details or application statuses could not be loaded.");
+                    }
+                });
+            }
+        }
+        async function searchQuery(query: string) {
+            const params = new URLSearchParams({ q: query, first: String(PAGE_SIZE), after: "0" });
             if (activeSkills.length) params.set("skills", activeSkills.join(","));
-
-            const allJobs: Job[] = [];
-            const seenJobIds = new Set<string>();
+            // Keep editable date filters local so changing them can reveal loaded jobs.
             const visitedCursors = new Set<string>();
+            const seenRawIds = new Set<string>();
             let cursor = "0";
-
-            while (true) {
-                if (!isCurrentSearch()) return;
-                if (visitedCursors.has(cursor)) {
-                    throw new Error("The API repeated a page cursor. Search could not load all results.");
-                }
+            while (isCurrentSearch()) {
+                if (visitedCursors.has(cursor)) throw new Error("The API repeated a page cursor. Loaded results have been kept.");
                 visitedCursors.add(cursor);
                 params.set("after", cursor);
-
-                const response = await fetch(`/api/freelancer/jobs?${params.toString()}`, {
-                    method: "GET",
-                    cache: "no-store",
-                    signal: controller.signal,
-                    headers: { Accept: "application/json" }
+                const response = await fetch(`/api/freelancer/jobs?${params}`, {
+                    cache: "no-store", signal: controller.signal, headers: { Accept: "application/json" }
                 });
-                const raw = await response.text();
+                const data = await readResponse(response);
                 if (!isCurrentSearch()) return;
-                let data: any;
-                try {
-                    data = JSON.parse(raw);
-                } catch {
-                    throw new Error(`Freelancer API returned an invalid response (${response.status}).`);
+                const rawIds: string[] = Array.isArray(data.rawIds) ? data.rawIds.map(String) : data.jobs.map((j: Job) => String(j.id));
+                if (rawIds.length && rawIds.every(id => seenRawIds.has(id))) {
+                    throw new Error("Freelancer repeated a results page. Loaded results have been kept.");
                 }
-                if (data?.reauthRequired === true || data?.error === "FREELANCER_REAUTH_REQUIRED") {
-                    throw new Error(data?.reauthReason || "Please reconnect your Freelancer account.");
-                }
-                if (!response.ok || !data?.success) {
-                    throw new Error(
-                        typeof data?.message === "string" ? data.message :
-                            typeof data?.error === "string" ? data.error :
-                                data?.error?.[0]?.message || data?.error?.message ||
-                                "Unable to search Freelancer jobs."
-                    );
-                }
-                if (!Array.isArray(data.jobs)) {
-                    throw new Error("The API returned an invalid jobs list.");
-                }
+                rawIds.forEach(id => seenRawIds.add(id));
+                const newIds: string[] = [];
                 for (const job of data.jobs as Job[]) {
                     const id = String(job.id);
-                    if (!seenJobIds.has(id)) {
-                        seenJobIds.add(id);
-                        allJobs.push(job);
+                    // Another query may already have enriched this project.
+                    if (!allJobs.has(id)) allJobs.set(id, { ...job, id });
+                    if (!enrichmentScheduled.has(id)) {
+                        enrichmentScheduled.add(id);
+                        newIds.push(id);
                     }
                 }
-
-                // The API must describe the raw search pages, before local filters.
-                if (data.pageInfo?.hasNextPage !== true) break;
-                const nextCursor = data.pageInfo?.endCursor;
-                if (nextCursor == null || String(nextCursor) === "") {
-                    throw new Error("The API did not return the next page cursor.");
+                loadedPages++;
+                setSearchProgress(loadedPages);
+                publish();
+                scheduleEnrichment(newIds);
+                if (data.pageInfo?.hasNextPage !== true) return;
+                const next = data.pageInfo?.endCursor;
+                if (next == null || !Number.isFinite(Number(next)) || Number(next) <= Number(cursor)) {
+                    throw new Error("The API returned an invalid next-page cursor. Loaded results have been kept.");
                 }
-                cursor = String(nextCursor);
+                cursor = String(next);
             }
-
+        }
+        try {
+            let queryIndex = 0;
+            // Limit concurrent searches to avoid flooding the upstream API.
+            const workers = Array.from({ length: Math.min(2, queries.length) }, async () => {
+                while (queryIndex < queries.length && isCurrentSearch()) {
+                    const query = queries[queryIndex++];
+                    try { await searchQuery(query); }
+                    catch (err) {
+                        if (isCurrentSearch()) warnings.add(err instanceof Error ? err.message : "Unable to load all jobs.");
+                    }
+                }
+            });
+            await Promise.all(workers);
             if (!isCurrentSearch()) return;
             setSearch(searchKeyword);
-            setJobs(allJobs);
-            setCurrentPage(1);
-        } catch (err) {
-            if (!isCurrentSearch()) return;
-            setError(err instanceof Error ? err.message : "Unable to load all jobs.");
+            setLoading(false);
+            if (warnings.size) setError(Array.from(warnings).join(" "));
+            // Continue client/application lookups after search finishes.
+            await Promise.all(enrichmentLanes);
+            if (isCurrentSearch() && warnings.size) setError(Array.from(warnings).join(" "));
         } finally {
             if (searchAbortRef.current === controller) {
                 searchAbortRef.current = null;
                 setLoading(false);
+                setEnriching(false);
             }
         }
     }
 
     function goToNextPage() {
-        if (loading || currentPage >= totalPages) return;
+        if (currentPage >= totalPages) return;
         setCurrentPage(page => Math.min(page + 1, totalPages));
         window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
     function goToPreviousPage() {
-        if (loading || currentPage <= 1) return;
+        if (currentPage <= 1) return;
         setCurrentPage(page => Math.max(1, page - 1));
         window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -1683,16 +1733,14 @@ export default function FreelancerJobsPage() {
                                             <input
                                                 type="text"
                                                 value={search}
-                                                disabled={searchMode === "quick"}
                                                 onChange={e => {
                                                     setSearchMode("manual");
-                                                    setSelectedSkills([]);
                                                     setSearch(e.target.value);
                                                 }}
                                                 onKeyDown={e => {
                                                     if (e.key === "Enter" && !loading) {
                                                         setSearchMode("manual");
-                                                        searchJobs(1, "0");
+                                                        void searchJobs(1, "0", search, undefined, selectedSkills);
                                                     }
                                                 }}
                                                 placeholder="Wix, Webflow, Shopify, Next.js..."
@@ -1706,7 +1754,7 @@ export default function FreelancerJobsPage() {
                                             type="button"
                                             onClick={() => {
                                                 setSearchMode("manual");
-                                                searchJobs(1, "0");
+                                                void searchJobs(1, "0", search, undefined, selectedSkills);
                                             }}
                                             disabled={loading}
                                             className="flex h-[42px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
@@ -1723,7 +1771,7 @@ export default function FreelancerJobsPage() {
                                             )}
                                         </button>
 
-                                        {loading && (
+                                        {(loading || enriching) && (
                                             <button
                                                 type="button"
                                                 onClick={stopSearch}
@@ -1908,7 +1956,12 @@ font-semibold text-blue-700
                             <div>
                                 <h2 className="text-base font-semibold text-[#101828]">Latest Opportunities</h2>
                                 <p className="text-gray-400 text-[12px] mt-0.5">
-                                    {!hasSearched ? "Search jobs to view opportunities" : total > 0 ? `Showing ${from}-${to} of ${total} available jobs` : "No jobs found"}
+                                    {!hasSearched ? "Search jobs to view opportunities" : total > 0 ? `Showing ${from}-${to} of ${total} available jobs` : loading || enriching ? "Loading results and client details..." : "No jobs found"}
+                                    {(loading || enriching) && (
+                                        <span className="ml-2 text-[11px] text-blue-600" role="status">
+                                            {loading ? `Loading more results (${searchProgress} pages loaded)...` : "Loading client details and application status..."}
+                                        </span>
+                                    )}
                                 </p>
                             </div>
 
@@ -2118,10 +2171,10 @@ font-semibold text-blue-700
                                                     </svg>
                                                 </div>
                                                 <h3 className="text-gray-800 text-sm font-semibold mt-2">Search Freelancer Jobs</h3>
-                                                <p className="text-gray-400 text-[11px] mt-1">Select or enter a keyword and click Search Jobs.</p>
+                                                <p className="text-gray-400 text-[11px] mt-1">Enter a keyword, select skills, or use both, then click Search Jobs.</p>
                                             </td>
                                         </tr>
-                                    ) : loading ? (
+                                    ) : (loading || enriching) && displayedJobs.length === 0 ? (
                                         <tr>
                                             <td colSpan={16} className="py-12 text-center">
                                                 <div className="w-8 h-8 border-[3px] border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto" />
@@ -2334,7 +2387,7 @@ font-semibold text-blue-700
                             </table>
                         </div>
 
-                        {hasSearched && !loading && total > 0 && (
+                        {hasSearched && total > 0 && (
                             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-gray-200 bg-[#F8FAFC] px-3 py-3">
                                 <p className="text-[11px] text-gray-500">
                                     Showing <span className="font-semibold text-gray-800">{from}</span>–
@@ -2346,7 +2399,7 @@ font-semibold text-blue-700
                                     <button
                                         type="button"
                                         onClick={goToPreviousPage}
-                                        disabled={loading || visiblePage <= 1}
+                                        disabled={visiblePage <= 1}
                                         className="h-8 rounded-md border border-gray-300 bg-white px-3 text-[11px] font-semibold text-gray-700 transition hover:border-blue-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
                                     >
                                         ← Previous
@@ -2359,7 +2412,7 @@ font-semibold text-blue-700
                                     <button
                                         type="button"
                                         onClick={goToNextPage}
-                                        disabled={loading || visiblePage >= totalPages}
+                                        disabled={visiblePage >= totalPages}
                                         className="h-8 rounded-md bg-blue-600 px-3 text-[11px] font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                                     >
                                         Next →
