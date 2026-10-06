@@ -149,7 +149,7 @@ export default function FreelancerJobsPage() {
 
     const [filterCollapsed, setFilterCollapsed] = useState(false);
     const [search, setSearch] = useState("");
-    const [searchMode, setSearchMode] = useState<"manual" | "quick" | null>(null);
+    // const [searchMode, setSearchMode] = useState<"manual" | "quick" | null>(null);
     const [jobs, setJobs] = useState<Job[]>([]);
     const [loading, setLoading] = useState(false);
     const [enriching, setEnriching] = useState(false);
@@ -183,7 +183,7 @@ export default function FreelancerJobsPage() {
     const [fixedPriceFirst, setFixedPriceFirst] = useState(false);
     const [hourlyPriceFirst, setHourlyPriceFirst] = useState(false);
     const [previousClientFirst, setPreviousClientFirst] = useState(false);
-    const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
+    const [sortColumn, setSortColumn] = useState<SortColumn | null>("published");
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
     const [aiReport, setAiReport] = useState<AIReport | null>(null);
@@ -491,23 +491,24 @@ export default function FreelancerJobsPage() {
         window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
-    function handleQuickSearch(keyword: string, skills: string[] = []) {
-
-        setSearchMode("quick");
-
-        setSearch(keyword);
-
-        setSelectedSkills(skills);
-
-
-        void searchJobs(
-            1,
-            "0",
-            keyword,
-            undefined,
-            skills
-        );
-    }
+    // Unused helper: no active call sites.
+    // function handleQuickSearch(keyword: string, skills: string[] = []) {
+    //
+    //     setSearchMode("quick");
+    //
+    //     setSearch(keyword);
+    //
+    //     setSelectedSkills(skills);
+    //
+    //
+    //     void searchJobs(
+    //         1,
+    //         "0",
+    //         keyword,
+    //         undefined,
+    //         skills
+    //     );
+    // }
 
     function toggleCountry(country: string) {
         if (country === "ALL") {
@@ -522,19 +523,20 @@ export default function FreelancerJobsPage() {
         );
     }
 
-    function toggleSkillGroup(index: number) {
-        const group = SKILL_GROUPS[index];
-
-        const isSelected = group.every(skill =>
-            selectedSkills.includes(skill)
-        );
-
-        setSelectedSkills(current =>
-            isSelected
-                ? current.filter(item => !group.includes(item))
-                : [...new Set([...current, ...group])]
-        );
-    }
+    // Unused helper: no active call sites.
+    // function toggleSkillGroup(index: number) {
+    //     const group = SKILL_GROUPS[index];
+    //
+    //     const isSelected = group.every(skill =>
+    //         selectedSkills.includes(skill)
+    //     );
+    //
+    //     setSelectedSkills(current =>
+    //         isSelected
+    //             ? current.filter(item => !group.includes(item))
+    //             : [...new Set([...current, ...group])]
+    //     );
+    // }
 
     function saveCurrentFilter() {
         const name = newFilterName.trim();
@@ -565,14 +567,14 @@ export default function FreelancerJobsPage() {
         setApplicantRange(filter.applicantRange);
         setPostedDays(filter.postedDays);
         setSearch(filter.search);
-        setSearchMode(filter.skills.length ? "quick" : "manual");
+        // setSearchMode(filter.skills.length ? "quick" : "manual");
         void searchJobs(1, "0", filter.search, undefined, filter.skills, filter);
     }
 
     function clearFilters() {
         setSelectedSavedFilter("");
         setSearch("");
-        setSearchMode(null);
+        // setSearchMode(null);
         setSelectedCountries([...countryOptions]);
         setSelectedSkills([]);
         setPaymentVerified("all");
@@ -581,7 +583,7 @@ export default function FreelancerJobsPage() {
         setFixedPriceFirst(false);
         setHourlyPriceFirst(false);
         setPreviousClientFirst(false);
-        setSortColumn(null);
+        setSortColumn("published");
         setSortDirection("desc");
     }
 
@@ -742,10 +744,11 @@ export default function FreelancerJobsPage() {
         return value.includes("verified") || value.includes("true");
     }
 
-    function isEnabledBadgeFlag(value: ProjectBadgeFlag) {
-        return value === true || value === 1 ||
-            (typeof value === "string" && ["true", "1"].includes(value.trim().toLowerCase()));
-    }
+    // Unused helper: no active call sites.
+    // function isEnabledBadgeFlag(value: ProjectBadgeFlag) {
+    //     return value === true || value === 1 ||
+    //         (typeof value === "string" && ["true", "1"].includes(value.trim().toLowerCase()));
+    // }
 
     function getProjectBadgeLabels(job: Job): string[] {
         const labels = new Set<string>();
@@ -854,9 +857,10 @@ export default function FreelancerJobsPage() {
         }
     }
 
-    function isFeaturedJob(job: Job) {
-        return getProjectBadgeLabels(job).includes("Featured");
-    }
+    // Unused helper: no active call sites.
+    // function isFeaturedJob(job: Job) {
+    //     return getProjectBadgeLabels(job).includes("Featured");
+    // }
 
     function isPreviousClientJob(job: Job) {
         return job.isPreviousClient === true || Boolean(job.freelancerClientRelation);
@@ -1255,6 +1259,18 @@ export default function FreelancerJobsPage() {
         return true;
     });
 
+    // Unknown or invalid published dates stay last in either sort direction.
+    function comparePublishedDates(a: Job, b: Job, direction: SortDirection): number {
+        const aTime = a.publishedDateTime ? new Date(a.publishedDateTime).getTime() : NaN;
+        const bTime = b.publishedDateTime ? new Date(b.publishedDateTime).getTime() : NaN;
+        const aValid = Number.isFinite(aTime);
+        const bValid = Number.isFinite(bTime);
+        if (!aValid && !bValid) return 0;
+        if (!aValid) return 1;
+        if (!bValid) return -1;
+        return direction === "desc" ? bTime - aTime : aTime - bTime;
+    }
+
     const sortedJobs = filteredJobs
         .map((job, index) => ({ job, index }))
         .sort((a, b) => {
@@ -1274,10 +1290,11 @@ export default function FreelancerJobsPage() {
                         break;
 
                     case "elapsed":
-                        comparison =
-                            new Date(a.job.publishedDateTime || 0).getTime() -
-                            new Date(b.job.publishedDateTime || 0).getTime();
+                    case "published": {
+                        const dateOrder = comparePublishedDates(a.job, b.job, sortDirection);
+                        if (dateOrder !== 0) return dateOrder;
                         break;
+                    }
 
                     case "country":
                         comparison = compareText(
@@ -1324,10 +1341,6 @@ export default function FreelancerJobsPage() {
                         break;
                     }
 
-                    case "published":
-                        comparison = new Date(a.job.publishedDateTime || 0).getTime() -
-                            new Date(b.job.publishedDateTime || 0).getTime();
-                        break;
                 }
 
                 if (comparison !== 0) {
@@ -1358,7 +1371,8 @@ export default function FreelancerJobsPage() {
                 }
             }
 
-            return a.index - b.index;
+            // Use newest published first for equal values and when no column is selected.
+            return comparePublishedDates(a.job, b.job, "desc") || a.index - b.index;
         })
         .map(item => item.job);
 
@@ -1671,7 +1685,7 @@ export default function FreelancerJobsPage() {
                                         </div>
 
                                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:col-span-5 xl:grid-cols-2">
-                                            <div>
+                                            {/* <div>
                                                 <label className="mb-1 block text-[11px] font-semibold text-gray-700">Payment Verified</label>
                                                 <div className="flex h-9 items-center gap-3 rounded-lg border border-gray-300 px-2.5">
                                                     {(["all", "verified", "unverified"] as PaymentFilter[]).map(value => (
@@ -1688,9 +1702,9 @@ export default function FreelancerJobsPage() {
                                                         </label>
                                                     ))}
                                                 </div>
-                                            </div>
+                                            </div> */}
 
-                                            <div>
+                                            {/* <div>
                                                 <label className="mb-1 block text-[11px] font-semibold text-gray-700">Total Applicants</label>
                                                 <select
                                                     value={applicantRange}
@@ -1701,7 +1715,7 @@ export default function FreelancerJobsPage() {
                                                         <option key={option.value} value={option.value}>{option.label}</option>
                                                     ))}
                                                 </select>
-                                            </div>
+                                            </div> */}
 
                                             <div>
                                                 <label className="mb-1 block text-[11px] font-semibold text-gray-700">Posted Time</label>
@@ -1734,12 +1748,12 @@ export default function FreelancerJobsPage() {
                                                 type="text"
                                                 value={search}
                                                 onChange={e => {
-                                                    setSearchMode("manual");
+                                                    // setSearchMode("manual");
                                                     setSearch(e.target.value);
                                                 }}
                                                 onKeyDown={e => {
                                                     if (e.key === "Enter" && !loading) {
-                                                        setSearchMode("manual");
+                                                        // setSearchMode("manual");
                                                         void searchJobs(1, "0", search, undefined, selectedSkills);
                                                     }
                                                 }}
@@ -1753,7 +1767,7 @@ export default function FreelancerJobsPage() {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                setSearchMode("manual");
+                                                // setSearchMode("manual");
                                                 void searchJobs(1, "0", search, undefined, selectedSkills);
                                             }}
                                             disabled={loading}
@@ -1796,7 +1810,7 @@ export default function FreelancerJobsPage() {
                                             type="button"
                                             onClick={() => {
                                                 setSelectedSkills([]);
-                                                setSearchMode(null);
+                                                // setSearchMode(null);
                                                 setCurrentPage(1);
                                             }}
                                             disabled={optionsLoading || selectedSkills.length === 0}
@@ -1832,13 +1846,13 @@ export default function FreelancerJobsPage() {
                                                         setSelectedSkills(
                                                             updated
                                                         );
-                                                        setSearchMode(
-                                                            updated.length
-                                                                ?
-                                                                "quick"
-                                                                :
-                                                                null
-                                                        );
+                                                        // setSearchMode(
+                                                        //     updated.length
+                                                        //         ?
+                                                        //         "quick"
+                                                        //         :
+                                                        //         null
+                                                        // );
                                                     }}
 
                                                     className={`
@@ -1995,7 +2009,7 @@ font-semibold text-blue-700
                                     Hourly Price
                                 </label>
 
-                                <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-800 cursor-pointer">
+                                {/* <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-800 cursor-pointer">
                                     <input
                                         type="checkbox"
                                         checked={previousClientFirst}
@@ -2004,7 +2018,7 @@ font-semibold text-blue-700
                                         className="w-3.5 h-3.5 disabled:cursor-not-allowed"
                                     />
                                     Previous Client First
-                                </label>
+                                </label> */}
 
                                 <span className="text-blue-600 text-xs font-bold">Total: {total}</span>
                             </div>

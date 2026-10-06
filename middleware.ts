@@ -1,103 +1,62 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+export async function middleware(req: NextRequest) {
+    const path = req.nextUrl.pathname.replace(/\/+$/, "") || "/";
+    const publicPages = ["/", "/login", "/signup", "/forgot-password", "/reset-password"];
 
-export function middleware(req: NextRequest) {
-
+    if (publicPages.includes(path) || path.startsWith("/reset-password/")) {
+        return NextResponse.next();
+    }
 
     const token = req.cookies.get("token")?.value;
+    if (!token || !/^[a-f0-9]{64}$/.test(token)) {
+        return NextResponse.redirect(new URL("/login", req.url));
+    }
 
-    const role = req.cookies.get("role")?.value?.toLowerCase();
+    try {
+        // One API call validates the database session and checks page permission.
+        const response = await fetch(new URL("/api/my-permissions", req.url), {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Cookie: `token=${token}`,
+            },
+            body: JSON.stringify({ path }),
+            cache: "no-store",
+            redirect: "error",
+            signal: AbortSignal.timeout(10000),
+        });
 
-
-    const path = req.nextUrl.pathname;
-
-
-
-    const publicPages = [
-        "/login",
-        "/signup",
-        "/forgot-password"
-    ];
-
-
-
-    const adminPages = [
-        "/jobs",
-        "/upwork-jobs"
-    ];
-
-
-
-
-    // Public pages
-
-    if (publicPages.includes(path)) {
-
-
-        if (token) {
-
-            return NextResponse.redirect(
-                new URL("/dashboard", req.url)
-            );
-
+        if (response.status === 401) {
+            return NextResponse.redirect(new URL("/login", req.url));
         }
-
-
-        return NextResponse.next();
-
-    }
-
-
-
-
-    // Protected pages
-
-    if (!token) {
-
-        return NextResponse.redirect(
-            new URL("/login", req.url)
-        );
-
-    }
-
-
-
-
-    // Admin only
-
-    if (adminPages.some(page => path.startsWith(page))) {
-
-        if (role !== "admin") {
-
-            return NextResponse.redirect(
-                new URL("/dashboard", req.url)
-            );
-
+        if (!response.ok) {
+            return new NextResponse("Unable to check page access. Please try again.", {
+                status: 503,
+                headers: { "Cache-Control": "no-store" },
+            });
         }
-
+        const data = await response.json();
+        if (data.success === true && data.allowed === true) {
+            return NextResponse.next();
+        }
+        return new NextResponse("You do not have permission to access this page.", {
+            status: 403,
+            headers: { "Cache-Control": "no-store" },
+        });
+    } catch {
+        return new NextResponse("Unable to check page access. Please try again.", {
+            status: 503,
+            headers: { "Cache-Control": "no-store" },
+        });
     }
-
-
-
-    return NextResponse.next();
-
 }
 
-
-
-
 export const config = {
-
+    // A fixed matcher covers all page routes; MongoDB controls the grants.
+    // API endpoints and public static assets are excluded from this page guard.
     matcher: [
-        "/dashboard/:path*",
-        "/profile/:path*",
-        "/reset-password/:path*",
-        "/jobs/:path*",
-        "/upwork-jobs/:path*",
-        "/login",
-        "/signup",
-        "/forgot-password"
-    ]
-
+        "/((?!api(?:/|$)|_next(?:/|$)|.*\\.[^/]+$).*)",
+    ],
 };
