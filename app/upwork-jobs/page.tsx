@@ -335,10 +335,8 @@ export default function UpworkJobsPage() {
         ).trim() ||
             "";
 
-        const activeKeyword =
-            searchMode === "quick" || searchMode === "manual"
-                ? searchKeyword
-                : "";
+        // Submit the keyword together with the selected Quick Search skills.
+        const activeKeyword = searchKeyword;
 
         const prioritizePreviousClient = previousClientFirstOverride ?? previousClientFirst;
 
@@ -1342,10 +1340,7 @@ export default function UpworkJobsPage() {
 
         try {
             const params = new URLSearchParams({
-                q:
-                    searchMode === "quick" || searchMode === "manual"
-                        ? search.trim()
-                        : "",
+                q: search.trim(),
                 first: String(PAGE_SIZE),
                 after: "0"
             });
@@ -1849,6 +1844,17 @@ export default function UpworkJobsPage() {
                                             <div className="flex max-h-[92px] flex-wrap gap-1.5 overflow-y-auto pr-1">
                                                 <button
                                                     type="button"
+                                                    onClick={() => {
+                                                        setSelectedCountries([]);
+                                                        setCurrentPage(1);
+                                                    }}
+                                                    disabled={optionsLoading || selectedCountries.length === 0}
+                                                    className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-medium text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                                >
+                                                    Deselect all countries
+                                                </button>
+                                                <button
+                                                    type="button"
                                                     onClick={() => toggleCountry("ALL")}
                                                     disabled={optionsLoading || countryOptions.length === 0}
                                                     className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${allCountriesSelected
@@ -2022,16 +2028,14 @@ export default function UpworkJobsPage() {
                                             <input
                                                 type="text"
                                                 value={search}
-                                                disabled={searchMode === "quick"}
                                                 onChange={e => {
                                                     setSearchMode("manual");
-                                                    setSelectedSkills([]);
                                                     setSearch(e.target.value);
                                                 }}
                                                 onKeyDown={e => {
                                                     if (e.key === "Enter" && !loading) {
                                                         setSearchMode("manual");
-                                                        searchJobs(1, "0");
+                                                        void searchJobs(1, "0", search, undefined, selectedSkills);
                                                     }
                                                 }}
                                                 placeholder="Wix, Webflow, Shopify, Next.js..."
@@ -2045,7 +2049,7 @@ export default function UpworkJobsPage() {
                                             type="button"
                                             onClick={() => {
                                                 setSearchMode("manual");
-                                                searchJobs(1, "0");
+                                                void searchJobs(1, "0", search, undefined, selectedSkills);
                                             }}
                                             disabled={loading}
                                             className="flex h-[42px] items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-blue-600 px-5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
@@ -2083,6 +2087,18 @@ export default function UpworkJobsPage() {
                                         <span className="text-[12px] text-gray-500 mr-1">
                                             Quick search:
                                         </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedSkills([]);
+                                                setSearchMode(null);
+                                                setCurrentPage(1);
+                                            }}
+                                            disabled={optionsLoading || selectedSkills.length === 0}
+                                            className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[12px] font-medium text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                            Deselect all skills
+                                        </button>
                                         {skillOptions.map(skill => {
                                             const group = getSkillGroup(skill);
                                             const selected =
@@ -2418,7 +2434,7 @@ font-semibold text-blue-700
                                                     </svg>
                                                 </div>
                                                 <h3 className="text-gray-800 text-sm font-semibold mt-2">Search Upwork Jobs</h3>
-                                                <p className="text-gray-400 text-[11px] mt-1">Select or enter a keyword and click Search Jobs.</p>
+                                                <p className="text-gray-400 text-[11px] mt-1">Enter a keyword, select skills, or use both, then click Search Jobs.</p>
                                             </td>
                                         </tr>
                                     ) : loading ? (

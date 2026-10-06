@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Raw = Record<string, any>;
@@ -79,17 +80,18 @@ function parsePublicClient(html: string): PublicClient | null {
     ...(section.some(x => /^Payment method verified$/i.test(x)) ? { paymentVerified: true as const } : {})
   };
 }
-async function getPublicClient(project: Raw): Promise<PublicClient | null> {
+async function getPublicClient(project: Raw, signal: AbortSignal): Promise<PublicClient | null> {
   const id = String(project.id);
   const cached = publicClientCache.get(id);
   if (cached && cached.expires > Date.now()) return cached.value;
   const slug = String(project.seo_url || "").replace(/^\/+/, "");
   try {
     const res = await fetch(new URL(`/projects/${slug || id}`, "https://www.freelancer.com"), {
-      headers: { Accept: "text/html" }, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(6000)
+      headers: { Accept: "text/html" }, redirect: "error", cache: "no-store", signal: AbortSignal.any([signal, AbortSignal.timeout(4000)])
     });
     if (!res.ok) return null;
     const value = parsePublicClient(await res.text());
+    if (publicClientCache.size >= 1000) publicClientCache.delete(publicClientCache.keys().next().value!);
     publicClientCache.set(id, { value, expires: Date.now() + (value ? 15 : 2) * 60_000 });
     return value;
   } catch { return null; }
@@ -97,7 +99,8 @@ async function getPublicClient(project: Raw): Promise<PublicClient | null> {
 async function freelancerGet(
   path: string,
   params: URLSearchParams,
-  token: string
+  token: string,
+  signal: AbortSignal
 ) {
   const res = await fetch(`${BASE}${path}?${params.toString()}`, {
     headers: {
@@ -105,7 +108,7 @@ async function freelancerGet(
       Accept: "application/json"
     },
     cache: "no-store",
-    signal: AbortSignal.timeout(20000)
+    signal: AbortSignal.any([signal, AbortSignal.timeout(12000)])
   });
   const body = await res.json();
   if (!res.ok || body.status === "error") {
@@ -115,10 +118,28 @@ async function freelancerGet(
   }
   return body.result || {};
 }
+// Scope the connected account cache to the token; never share account IDs
+// across credentials. Store only a hash as the cache key.
+const accountCache = new Map<string, { id: string; expires: number }>();
+async function getAccountId(token: string, signal: AbortSignal): Promise<string | null> {
+  const key = createHash("sha256").update(token).digest("hex");
+  const cached = accountCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.id;
+  const account = await freelancerGet("/users/0.1/self/", new URLSearchParams(), token, signal);
+  if (account.id == null) return null;
+  const id = String(account.id);
+  if (accountCache.size >= 20) accountCache.delete(accountCache.keys().next().value!);
+  accountCache.set(key, { id, expires: Date.now() + 10 * 60_000 });
+  return id;
+}
 export async function GET(req: NextRequest) {
   const token = process.env.FREELANCER_ACCESS_TOKEN || "";
   if (!token) return fail("Set FREELANCER_ACCESS_TOKEN in .env.local", 500);
   const input = req.nextUrl.searchParams;
+  const enrich = input.get("mode") === "enrich";
+  const projectIds = [...new Set((input.get("ids") || "").split(",").filter(id => /^\d+$/.test(id)))].slice(0, 8);
+  if (enrich && !projectIds.length) return fail("Project IDs required", 400);
+  const requestSignal = AbortSignal.any([req.signal, AbortSignal.timeout(22000)]);
   const limit = Math.min(50, Math.max(1, Math.floor(number(input.get("first")) || 50)));
   const startOffset = Math.max(0, Math.floor(number(input.get("after"))));
   const selectedSkills = (input.get("skills") || "").split(",").map(x => x.trim()).filter(Boolean);
@@ -129,146 +150,91 @@ export async function GET(req: NextRequest) {
     user_location_details: "true", user_status_details: "true", user_reputation_details: "true",
     user_employer_reputation_details: "true", user_display_info_details: "true"
   };
-  // Resolve the connected account once per request.
-const accountIdPromise = freelancerGet(
-    "/users/0.1/self/",
-    new URLSearchParams(),
-    token
-)
-    .then(user => {
-        if (user.id == null) throw new Error("Account ID unavailable");
-        return String(user.id);
-    })
-    .catch(() => null);
-async function getApplicationStatus(
-    projects: Raw[]
-): Promise<Map<string, boolean | null>> {
-    const statuses = new Map<string, boolean | null>(
-        projects.map(project => [String(project.id), null])
-    );
-    if (!projects.length) return statuses;
-    const accountId = await accountIdPromise;
-    if (!accountId) return statuses;
-    const found = new Set<string>();
-    const bidsPerProject = new Map<string, Set<string>>();
-    const seenBids = new Set<string>();
-    const pageSize = 50;
-    let offset = 0;
-    let complete = false;
+  async function getApplicationStatus(projects: Raw[]): Promise<Map<string, boolean | null>> {
+    const statuses = new Map<string, boolean | null>(projects.map(p => [String(p.id), null]));
+    if (!enrich || !projects.length) return statuses;
+    // Retrieve ONLY the connected account's bids, not every competitor's bids.
+    // Unknown stays null on API errors or incomplete pagination.
+    const signal = AbortSignal.any([requestSignal, AbortSignal.timeout(10000)]);
     try {
-        for (let page = 0; page < 100; page++) {
-            const params = new URLSearchParams({
-                limit: String(pageSize),
-                offset: String(offset)
-            });
-            projects.forEach(project =>
-                params.append("projects[]", String(project.id))
-            );
-            const result = await freelancerGet(
-                "/projects/0.1/bids/",
-                params,
-                token
-            );
-            if (
-                result.bids == null ||
-                typeof result.bids !== "object"
-            ) {
-                throw new Error("Invalid bids response");
-            }
-            const bids = projectList(result.bids);
-            let newBids = 0;
-            for (const bid of bids) {
-                if (bid.id == null) {
-                    throw new Error("Bid ID unavailable");
-                }
-                const bidId = String(bid.id);
-                if (!seenBids.has(bidId)) {
-                    seenBids.add(bidId);
-                    newBids++;
-                }
-                if (bid.project_id == null || bid.bidder_id == null) {
-                    throw new Error("Bid ownership unavailable");
-                }
-                const projectId = String(bid.project_id);
-                const projectBids = bidsPerProject.get(projectId) ?? new Set<string>();
-                projectBids.add(bidId);
-                bidsPerProject.set(projectId, projectBids);
-                if (String(bid.bidder_id) === accountId) {
-                    found.add(String(bid.project_id));
-                }
-            }
-            if (bids.length === 0) {
-                complete = true;
-                break;
-            }
-            if (!newBids) {
-                throw new Error("Bids pagination repeated");
-            }
-            offset += bids.length;
+      const accountId = await getAccountId(token, signal);
+      if (!accountId) return statuses;
+      const found = new Set<string>();
+      const seen = new Set<string>();
+      let offset = 0;
+      let complete = false;
+      for (let page = 0; page < 3; page++) {
+        const params = new URLSearchParams({ limit: "50", offset: String(offset) });
+        params.append("bidders[]", accountId);
+        projects.forEach(p => params.append("projects[]", String(p.id)));
+        const result = await freelancerGet("/projects/0.1/bids/", params, token, signal);
+        if (result.bids == null || typeof result.bids !== "object") break;
+        const bids = projectList(result.bids);
+        // If the upstream ignores the bidder filter, never mark unconfirmed jobs false.
+        if (bids.some(b => String(b.bidder_id) !== accountId || b.id == null || b.project_id == null)) break;
+        let newCount = 0;
+        for (const bid of bids) {
+          found.add(String(bid.project_id));
+          if (!seen.has(String(bid.id))) { seen.add(String(bid.id)); newCount++; }
         }
-    } catch {
-        // Preserve confirmed bids; leave unconfirmed statuses unknown.
-    }
-    projects.forEach(project => {
-        const id = String(project.id);
-        // A negative result requires a complete, visible bid list.
-        // Sealed/private bids or incomplete responses remain unknown.
-        const expectedCount = optionalNumber(project.bid_stats?.bid_count);
-        const visibleCount = bidsPerProject.get(id)?.size ?? 0;
-        const restricted = enabled(project.sealed) || enabled(project.upgrades?.sealed) ||
-            enabled(project.nonpublic) || enabled(project.upgrades?.nonpublic) ||
-            enabled(project.private) || enabled(project.upgrades?.private);
-        const confirmedAbsent = complete && !restricted && expectedCount != null &&
-            Number.isInteger(expectedCount) && expectedCount >= 0 && visibleCount === expectedCount;
-        statuses.set(id, found.has(id) ? true : confirmedAbsent ? false : null);
-    });
+        found.forEach(id => { if (statuses.has(id)) statuses.set(id, true); });
+        if (bids.length < 50) { complete = true; break; }
+        if (!newCount) break;
+        offset += bids.length;
+      }
+      if (complete) projects.forEach(p => {
+        const restricted = enabled(p.sealed) || enabled(p.upgrades?.sealed) ||
+          enabled(p.nonpublic) || enabled(p.upgrades?.nonpublic) || enabled(p.private) || enabled(p.upgrades?.private);
+        if (!found.has(String(p.id)) && !restricted) statuses.set(String(p.id), false);
+      });
+    } catch { /* Keep confirmed positives and unknown values. */ }
     return statuses;
-}
+  }
   async function fetchBatch(offset: number) {
     const searchParams = new URLSearchParams({ limit: String(limit), offset: String(offset), sort_field: "time_updated", ...detailFlags });
     if (query) searchParams.set("query", query);
-    const search = await freelancerGet("/projects/0.1/projects/active/", searchParams, token);
-    let listed = projectList(search.projects), users = userMap(search.users), projects = listed;
-    if (listed.length) {
+    let search: Raw;
+    if (enrich) {
       const detailParams = new URLSearchParams(detailFlags);
-      listed.forEach(p => detailParams.append("projects[]", String(p.id)));
-      try {
-        const details = await freelancerGet("/projects/0.1/projects/", detailParams, token);
-        const byId = new Map(projectList(details.projects).map(p => [String(p.id), p]));
-        projects = listed.map(p => ({ ...p, ...(byId.get(String(p.id)) || {}) }));
-        users = { ...users, ...userMap(details.users) };
-      } catch { }
+      projectIds.forEach(id => detailParams.append("projects[]", id));
+      search = await freelancerGet("/projects/0.1/projects/", detailParams, token, requestSignal);
+    } else {
+      search = await freelancerGet("/projects/0.1/projects/active/", searchParams, token, requestSignal);
     }
+    const listed = projectList(search.projects);
+    let users = userMap(search.users);
+    const projects = listed;
+    const applicationStatusPromise = getApplicationStatus(projects);
     const missingIds = [...new Set(projects.map(ownerId).filter(id => id &&
       (!users[id]?.registration_date || employerStats(users[id] || {}).rating == null || employerStats(users[id] || {}).reviews == null)))];
-    if (missingIds.length) {
+    if (enrich && missingIds.length) {
       const userParams = new URLSearchParams({ basic_details: "true", country_details: "true", location_details: "true", status_details: "true", reputation_details: "true", employer_reputation_details: "true", display_info_details: "true" });
       missingIds.forEach(id => userParams.append("users[]", id));
       try {
-        const details = await freelancerGet("/users/0.1/users/", userParams, token);
+        const details = await freelancerGet("/users/0.1/users/", userParams, token, requestSignal);
         Object.entries(userMap(details.users)).forEach(([id, value]) => {
           users[id] = { ...users[id], ...value };
         });
       } catch { /* Keep the details already available. */ }
     }
     const publicClients = new Map<string, PublicClient>();
-    const needsPublic = projects.filter(p => {
+    const needsPublic = enrich ? projects.filter(p => {
       const user = projectOwner(p, users);
       const stats = employerStats(user);
       return !countryOf(user) || !iso(user.registration_date) || stats.rating == null || stats.reviews == null;
-    });
+    }) : [];
     for (let i = 0; i < needsPublic.length; i += 8) {
       await Promise.all(needsPublic.slice(i, i + 8).map(async p => {
-        const c = await getPublicClient(p);
+        const c = await getPublicClient(p, requestSignal);
         if (c) publicClients.set(String(p.id), c);
       }));
     }
     const localClients = new Map<string, LocalClient>();
-    if (process.env.NODE_ENV === "development" && projects.length) {
+    if (enrich && process.env.NODE_ENV === "development" && process.env.FREELANCER_LOCAL_ENRICH === "true" && projects.length) {
       const urls = projects.map(p => p.seo_url ? `https://www.freelancer.com/projects/${String(p.seo_url).replace(/^\/+/, "")}` : `https://www.freelancer.com/projects/${p.id}`);
       try {
         const res = await fetch("http://127.0.0.1:43187/enrich", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }), cache: "no-store", signal: AbortSignal.timeout(90000)
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }), cache: "no-store", signal: AbortSignal.any([requestSignal, AbortSignal.timeout(8000)])
         });
         if (res.ok) (await res.json()).results?.forEach((r: any) => r.client && localClients.set(r.url, r.client));
       } catch { }
@@ -282,7 +248,7 @@ async function getApplicationStatus(
     const days = number(input.get("postedDays"));
     const verificationValue = input.get("paymentVerified");
     const verification = verificationValue === "verified" || verificationValue === "unverified" ? verificationValue : null;
-    const applicationStatuses = await getApplicationStatus(projects);
+    const applicationStatuses = await applicationStatusPromise;
     const jobs = projects.map(p => {
       const id = ownerId(p);
       const user = projectOwner(p, users);
@@ -332,9 +298,10 @@ async function getApplicationStatus(
         freelancerSkills: Array.isArray(p.jobs) ? p.jobs.map((j: Raw) => j.name).filter(Boolean) : [],
       };
     }).filter((j, index) => {
+      if (enrich) return true;
       const p = projects[index];
       const terms = `${j.title} ${j.description} ${j.freelancerSkills.join(" ")}`.toLowerCase();
-      return (!countries.length || countries.includes((j.client?.location?.country || "").toLowerCase())) &&
+      return (!countries.length || countries.includes(aliases[(j.client?.location?.country || "").toLowerCase()] || (j.client?.location?.country || "").toLowerCase())) &&
         (!skills.length || skills.some(x => terms.includes(x))) &&
         (min === null || number(p.budget?.maximum) >= min) &&
         (max === null || number(p.budget?.minimum) <= max) &&
@@ -345,33 +312,19 @@ async function getApplicationStatus(
     return { jobs, listed, rawTotal: search.total_count == null ? null : number(search.total_count) };
   }
   try {
-    const jobs: any[] = [];
-    let scanOffset = startOffset, nextCursor: string | null = null, totalJobs: number | null = null;
-    const seen = new Set<string>();
-    const seenRawIds = new Set<string>();
-    while (true) {
-      const batch = await fetchBatch(scanOffset);
-      if (batch.rawTotal !== null) totalJobs = batch.rawTotal;
-      if (!batch.listed.length) break;
-      const rawIds = batch.listed.map(p => String(p.id));
-      if (rawIds.every(id => seenRawIds.has(id))) {
-        throw new Error("Freelancer returned a repeated projects page.");
-      }
-      rawIds.forEach(id => seenRawIds.add(id));
-      const indices = new Map(batch.listed.map((p, i) => [String(p.id), i]));
-      for (const job of batch.jobs) {
-        if (seen.has(job.id)) continue;
-        seen.add(job.id);
-        if (jobs.length === limit) { nextCursor = String(scanOffset + (indices.get(job.id) ?? 0)); break; }
-        jobs.push(job);
-      }
-      if (nextCursor) break;
-      scanOffset += batch.listed.length;
-      if (batch.rawTotal !== null ? scanOffset >= batch.rawTotal : batch.listed.length < limit) break;
-    }
-    return NextResponse.json({ success: true, jobs, total: totalJobs ?? (nextCursor ? Number(nextCursor) + 1 : scanOffset), pageInfo: { endCursor: nextCursor, hasNextPage: nextCursor !== null } });
+    // Exactly one upstream page per request. The browser displays it immediately
+    // and follows RAW offsets even when local filtering produces an empty page.
+    const batch = await fetchBatch(startOffset);
+    const nextOffset = startOffset + batch.listed.length;
+    const hasNextPage = !enrich && batch.listed.length > 0 &&
+      (batch.rawTotal !== null ? nextOffset < batch.rawTotal : batch.listed.length === limit);
+    return NextResponse.json({
+      success: true, jobs: batch.jobs,
+      total: batch.rawTotal,
+      rawIds: batch.listed.map(p => String(p.id)),
+      pageInfo: { endCursor: hasNextPage ? String(nextOffset) : null, hasNextPage }
+    });
   } catch (error) {
-    
     return fail(error instanceof Error ? error.message : "Freelancer search failed");
   }
 }
