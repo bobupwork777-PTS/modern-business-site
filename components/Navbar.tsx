@@ -3,30 +3,65 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAuth } from "./AuthProvider";
+import JobAutoScheduler from "./JobAutoScheduler";
+
+type PermissionPage = {
+    _id: string;
+    name: string;
+    path: string;
+    group?: string;
+};
 
 export default function Navbar() {
     const { user, loading, setUser } = useAuth();
-    const [pages, setPages] = useState<any[]>([]);
+    const [pages, setPages] = useState<PermissionPage[]>([]);
+
+    const userId = user?._id;
 
     useEffect(() => {
-        if (user?._id) {
-            getPermissions(user._id);
-        }
-    }, [user]);
+        const controller = new AbortController();
 
-    const getPermissions = async (userId: string) => {
-        try {
-            const res = await fetch("/api/my-permissions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ userId }),
-            });
-            const data = await res.json();
-            setPages(data.pages || []);
-        } catch (error) {
-            console.log("Permission Error:", error);
+        setPages([]);
+
+        if (!userId) return;
+
+        async function getPermissions() {
+            try {
+                const response = await fetch("/api/my-permissions", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ userId }),
+                    signal: controller.signal,
+                });
+
+                if (!response.ok) {
+                    throw new Error(
+                        `Unable to load permissions (${response.status}).`
+                    );
+                }
+
+                const data = await response.json();
+
+                if (!controller.signal.aborted) {
+                    setPages(
+                        Array.isArray(data.pages) ? data.pages : []
+                    );
+                }
+            } catch (error) {
+                if (!controller.signal.aborted) {
+                    console.error("Permission Error:", error);
+                }
+            }
         }
-    };
+
+        void getPermissions();
+
+        return () => {
+            controller.abort();
+        };
+    }, [userId]);
 
     const logout = () => {
         localStorage.removeItem("user");
@@ -37,100 +72,136 @@ export default function Navbar() {
 
     if (loading) return null;
 
-    const groupedPages = pages.reduce((acc: any, page: any) => {
-        if (!page?.group) return acc;
-        // Hide Main group
-        if (page.group === "Main") return acc;
-        if (!acc[page.group]) {
-            acc[page.group] = [];
+    const groupedPages = pages.reduce<
+        Record<string, PermissionPage[]>
+    >((groups, page) => {
+        if (!page?.group || page.group === "Main") {
+            return groups;
         }
-        acc[page.group].push(page);
-        return acc;
+
+        if (!groups[page.group]) {
+            groups[page.group] = [];
+        }
+
+        groups[page.group].push(page);
+
+        return groups;
     }, {});
 
-    const renderMenu = () => {
-        return Object.entries(groupedPages).map(([group, items]: any) => {
-            if (!items.length) return null;
-
-            return (
-                <div key={group} className="relative group flex items-center">
-                    {items.length > 1 ? (
-                        <button className="flex items-center gap-1 text-sm font-semibold">
+    const renderMenu = () =>
+        Object.entries(groupedPages).map(([group, items]) => (
+            <div
+                key={group}
+                className="group relative flex items-center"
+            >
+                {items.length > 1 ? (
+                    <>
+                        <button
+                            type="button"
+                            className="flex items-center gap-1 text-sm font-semibold"
+                        >
                             <span>{group}</span>
-                            <span className="text-[10px] leading-none relative top-[1px]">▼</span>
+                            <span className="relative top-[1px] text-[10px] leading-none">
+                                ▼
+                            </span>
                         </button>
-                    ) : (
-                        <Link href={items[0].path} className="text-sm font-semibold">
-                            {items[0].name}
-                        </Link>
-                    )}
 
-                    {items.length > 1 && (
-                        <div className="absolute hidden group-hover:block top-full left-0 pt-3">
-                            <div className="bg-[#111B48] rounded-xl w-52 py-2 shadow-xl overflow-hidden">
-                                {items.map((page: any) => (
+                        <div className="absolute left-0 top-full hidden pt-3 group-hover:block group-focus-within:block">
+                            <div className="w-52 overflow-hidden rounded-xl bg-[#111B48] py-2 shadow-xl">
+                                {items.map((page) => (
                                     <Link
                                         key={page._id}
                                         href={page.path}
-                                        className="block px-4 py-2 text-sm text-white hover:bg-blue-600 transition"
+                                        className="block px-4 py-2 text-sm text-white transition hover:bg-blue-600 focus:bg-blue-600"
                                     >
                                         {page.name}
                                     </Link>
                                 ))}
                             </div>
                         </div>
-                    )}
-                </div>
-            );
-        });
-    };
+                    </>
+                ) : (
+                    <Link
+                        href={items[0].path}
+                        className="text-sm font-semibold"
+                    >
+                        {items[0].name}
+                    </Link>
+                )}
+            </div>
+        ));
 
     return (
-        <header className="absolute top-0 w-full z-50">
-            <nav className="max-w-7xl mx-auto flex items-center justify-between px-5 py-5">
-                {/* Logo + Menu */}
+        <header className="absolute top-0 z-50 w-full">
+            <nav className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-5">
+                {/* Logo and navigation */}
                 <div className="flex items-center gap-10">
-                    <Link href="/" className="text-2xl font-bold text-white">
-                        Phoenix<span className="text-blue-400">.</span>
+                    <Link
+                        href="/"
+                        className="text-2xl font-bold text-white"
+                    >
+                        Phoenix
+                        <span className="text-blue-400">.</span>
                     </Link>
-                    <div className="hidden md:flex items-center gap-8 text-white">
-                        <Link href="/" className="text-sm font-semibold">
+
+                    <div className="hidden items-center gap-8 text-white md:flex">
+                        <Link
+                            href="/"
+                            className="text-sm font-semibold"
+                        >
                             Home
                         </Link>
+
                         {renderMenu()}
                     </div>
                 </div>
 
-
-                {/* User Section */}
-                <div className="hidden md:flex items-center gap-8 text-white">
-
+                {/* User controls and notification toggle */}
+                <div className="ml-auto flex items-center gap-3 text-white md:gap-5">
                     {user ? (
                         <>
-                            <Link href="/profile" className="text-sm font-semibold">
+                            <Link
+                                href="/profile"
+                                className="hidden text-sm font-semibold md:block"
+                            >
                                 Hi {user.name}
                             </Link>
+
                             <button
+                                type="button"
                                 onClick={logout}
                                 className="text-sm font-semibold"
                             >
                                 Logout
                             </button>
+
+                            {user && (
+                                <div className="relative flex shrink-0 items-center border-l border-white/25 pl-3 md:pl-5">
+                                    <JobAutoScheduler
+                                        key={user._id}
+                                        userId={user._id}
+                                    />
+                                </div>
+                            )}
                         </>
                     ) : (
                         <>
-                            <Link href="/login" className="text-sm font-semibold">
+                            <Link
+                                href="/login"
+                                className="text-sm font-semibold"
+                            >
                                 Login
                             </Link>
 
-                            <Link href="/signup" className="text-sm font-semibold">
+                            <Link
+                                href="/signup"
+                                className="text-sm font-semibold"
+                            >
                                 Signup
                             </Link>
                         </>
                     )}
-
                 </div>
-
             </nav>
         </header>
     );
