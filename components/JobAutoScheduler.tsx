@@ -82,11 +82,8 @@ export default function JobAutoScheduler({
         try {
             savedEnabled =
                 localStorage.getItem(storageKey) === "true";
-        } catch (error) {
-            console.error(
-                "[Job Scheduler] Unable to read preference:",
-                error
-            );
+        } catch {
+            // Use the default OFF state if storage is unavailable.
         }
 
         setEnabled(savedEnabled);
@@ -110,11 +107,8 @@ export default function JobAutoScheduler({
                 storageKey,
                 String(nextEnabled)
             );
-        } catch (error) {
-            console.error(
-                "[Job Scheduler] Unable to save preference:",
-                error
-            );
+        } catch {
+            // The toggle still works for this session.
         }
 
         setEnabled(nextEnabled);
@@ -165,13 +159,8 @@ export default function JobAutoScheduler({
             );
 
             savePreference(true);
-        } catch (error) {
+        } catch {
             if (!mounted.current) return;
-
-            console.error(
-                "[Job Scheduler] Unable to enable notifications:",
-                error
-            );
 
             setStatus("Unable to enable desktop notifications.");
             setShowMessage(true);
@@ -201,7 +190,6 @@ export default function JobAutoScheduler({
         function requireReauthorization() {
             if (disposed) return;
 
-            // Keep the user's toggle ON, but pause API checks.
             setReauthRequired(true);
             setShowMessage(true);
             setStatus(
@@ -217,7 +205,6 @@ export default function JobAutoScheduler({
                 !window.isSecureContext ||
                 Notification.permission !== "granted"
             ) {
-                // Do not change the user's saved ON preference.
                 setStatus(
                     "Notifications are ON, but browser permission is unavailable. Allow notifications in your browser settings."
                 );
@@ -255,7 +242,6 @@ export default function JobAutoScheduler({
                 const matches = new Map<string, Job>();
                 let fetchedRows = 0;
 
-                // Search each skill separately: match any fixed skill.
                 for (const skill of FIXED_SKILLS) {
                     if (disposed) return;
 
@@ -314,7 +300,7 @@ export default function JobAutoScheduler({
                             data = JSON.parse(raw) as JobsResponse;
                         } catch {
                             throw new Error(
-                                `Jobs API returned non-JSON (${response.status}). Check your app login and server console.`
+                                `Jobs API returned non-JSON (${response.status}). Check your app login.`
                             );
                         }
 
@@ -339,8 +325,8 @@ export default function JobAutoScheduler({
                         if (!response.ok || data.success !== true) {
                             throw new Error(
                                 data.message ||
-                                    data.error ||
-                                    `Unable to fetch jobs (${response.status}).`
+                                data.error ||
+                                `Unable to fetch jobs (${response.status}).`
                             );
                         }
 
@@ -415,7 +401,6 @@ export default function JobAutoScheduler({
                         };
 
                         notification.onerror = () => {
-                            // Allow another attempt on a later check.
                             notifiedJobs.current.delete(job.id);
 
                             if (!disposed) {
@@ -428,12 +413,8 @@ export default function JobAutoScheduler({
 
                         notifiedJobs.current.set(job.id, checkedAt);
                         notificationCount += 1;
-                    } catch (error) {
-                        console.error(
-                            "[Job Scheduler] Notification creation failed:",
-                            job.id,
-                            error
-                        );
+                    } catch {
+                        // Leave this job eligible for a later attempt.
                     }
                 }
 
@@ -441,31 +422,19 @@ export default function JobAutoScheduler({
 
                 setStatus(
                     `Checked at ${new Date().toLocaleTimeString()}. ` +
-                        `${fetchedRows} API rows fetched; ` +
-                        `${newJobs.length} new matching jobs; ` +
-                        `${notificationCount} notifications created.`
+                    `${fetchedRows} API rows fetched; ` +
+                    `${newJobs.length} new matching jobs; ` +
+                    `${notificationCount} notifications created.`
                 );
-
-                console.log("[Job Scheduler] Check completed:", {
-                    fetchedRows,
-                    newJobs: newJobs.length,
-                    notificationCount,
-                });
             } catch (error) {
                 if (disposed) return;
 
                 const message = controller.signal.aborted
                     ? "Request timed out."
                     : error instanceof Error
-                      ? error.message
-                      : "Unable to check jobs.";
+                        ? error.message
+                        : "Unable to check jobs.";
 
-                console.error(
-                    "[Job Scheduler] Check failed:",
-                    message
-                );
-
-                // Errors do not switch OFF the user's preference.
                 setStatus(
                     `${message} Will retry at the next interval.`
                 );
