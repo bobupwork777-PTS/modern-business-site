@@ -303,6 +303,7 @@ export default function JobAutoScheduler({ userId }: JobAutoSchedulerProps) {
             }
         }
 
+        
         // Keep the existing five-minute schedule. Skip a tick if a check is still running.
         void checkJobs();
         interval = window.setInterval(() => void checkJobs(), CHECK_INTERVAL_MS);
