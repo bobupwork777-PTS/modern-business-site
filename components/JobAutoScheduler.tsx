@@ -325,14 +325,18 @@ export default function JobAutoScheduler({ userId }: JobAutoSchedulerProps) {
       }
     }
 
-    void checkJobs();
-    interval = window.setInterval(() => void checkJobs(), CHECK_INTERVAL_MS);
-    return () => {
-      disposed = true;
-      window.clearInterval(interval);
-      cycleController.current?.abort();
-    };
-  }, [storageKey, ready, enabled, reauthRequired]);
+        
+        // Keep the existing five-minute schedule. Skip a tick if a check is still running.
+        void checkJobs();
+        interval = window.setInterval(() => void checkJobs(), CHECK_INTERVAL_MS);
+        return () => {
+            disposed = true;
+            window.clearInterval(interval);
+            cycleController.current?.abort();
+        };
+    }, [storageKey, ready, enabled, reauthRequired]);
+
+    if (!userId) return null;
 
   if (!userId) return null;
   return (
