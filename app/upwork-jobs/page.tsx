@@ -162,6 +162,8 @@ export default function UpworkJobsPage() {
     const [fixedPriceFirst, setFixedPriceFirst] = useState(false);
     const [hourlyPriceFirst, setHourlyPriceFirst] = useState(false);
     const [previousClientFirst, setPreviousClientFirst] = useState(false);
+    const [previousClientsOnly, setPreviousClientsOnly] = useState(false);
+    const [sourceLimited, setSourceLimited] = useState(false);
     const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
     const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -326,7 +328,9 @@ export default function UpworkJobsPage() {
         cursor = "0",
         keyword?: string,
         previousClientFirstOverride?: boolean,
-        selectedSkillsOverride?: string[]
+        selectedSkillsOverride?: string[],
+        ignoreFilters = false,
+        previousClientsOnlyOverride?: boolean
     ) {
 
         const searchKeyword = (
@@ -339,6 +343,7 @@ export default function UpworkJobsPage() {
         const activeKeyword = searchKeyword;
 
         const prioritizePreviousClient = previousClientFirstOverride ?? previousClientFirst;
+        const onlyPrevious = previousClientsOnlyOverride ?? previousClientsOnly;
 
         searchAbortRef.current?.abort();
         const controller = new AbortController();
@@ -350,54 +355,25 @@ export default function UpworkJobsPage() {
             setLoading(true);
             setError("");
 
-            const params =
-                new URLSearchParams({
-                    q: activeKeyword,
+            const params = new URLSearchParams({
+                q: ignoreFilters ? "" : activeKeyword,
+                first: String(PAGE_SIZE),
+                after: cursor
+            });
 
-                    first:
-                        String(
-                            PAGE_SIZE
-                        ),
-
-                    after: cursor
-                });
-
-            if (selectedCountries.length) {
-                params.set("countries", selectedCountries.join(","));
+            if (!ignoreFilters) {
+                if (selectedCountries.length) params.set("countries", selectedCountries.join(","));
+                const activeSkills = selectedSkillsOverride ?? selectedSkills;
+                if (activeSkills.length) params.set("skills", activeSkills.join(","));
+                if (budgetMin.trim()) params.set("budgetMin", budgetMin.trim());
+                if (budgetMax.trim()) params.set("budgetMax", budgetMax.trim());
+                if (paymentVerified !== "all") params.set("paymentVerified", paymentVerified);
+                if (applicantRange !== "all") params.set("applicants", applicantRange);
+                if (postedDays !== "all") params.set("postedDays", postedDays);
             }
 
-            const activeSkills =
-                selectedSkillsOverride ??
-                selectedSkills;
-
-            if (activeSkills.length) {
-                params.set("skills", activeSkills.join(","));
-            }
-
-            if (budgetMin.trim()) {
-                params.set("budgetMin", budgetMin.trim());
-            }
-            if (budgetMax.trim()) {
-
-                params.set("budgetMax", budgetMax.trim());
-            }
-            if (
-                paymentVerified !== "all") {
-                params.set("paymentVerified", paymentVerified);
-            }
-
-            if (
-                applicantRange !== "all") {
-                params.set("applicants", applicantRange);
-            }
-
-            if (postedDays !== "all") {
-                params.set("postedDays", postedDays);
-            }
-
-            if (prioritizePreviousClient) {
-                params.set("previousClient", "true");
-            }
+            if (prioritizePreviousClient) params.set("previousClient", "true");
+            if (onlyPrevious) params.set("previousClientsOnly", "true");
             console.log("API Params:", Object.fromEntries(params.entries()));
             const response =
                 await fetch(`/api/upwork/jobs?${params.toString()}`,
@@ -589,6 +565,7 @@ export default function UpworkJobsPage() {
                 searchKeyword
             );
 
+            setSourceLimited(data?.sourceLimited === true);
             setJobs(
                 Array.isArray(
                     data?.jobs
@@ -859,6 +836,7 @@ export default function UpworkJobsPage() {
         setFixedPriceFirst(false);
         setHourlyPriceFirst(false);
         setPreviousClientFirst(false);
+        setPreviousClientsOnly(false);
         setSortColumn(null);
         setSortDirection("desc");
     }
@@ -872,7 +850,7 @@ export default function UpworkJobsPage() {
         (postedDays !== "all" ? 1 : 0) +
         (fixedPriceFirst ? 1 : 0) +
         (hourlyPriceFirst ? 1 : 0) +
-        (previousClientFirst ? 1 : 0);
+        (previousClientFirst ? 1 : 0) + (previousClientsOnly ? 1 : 0);
 
     function handleFixedPriceFirstChange(checked: boolean) {
         setFixedPriceFirst(checked);
@@ -911,11 +889,34 @@ export default function UpworkJobsPage() {
 
     async function handlePreviousClientFirstChange(checked: boolean) {
         setPreviousClientFirst(checked);
+        setPreviousClientsOnly(false);
 
         if (hasSearched) {
             setPageCursors({ 1: "0" });
-            await searchJobs(1, "0", undefined, checked);
+            await searchJobs(1, "0", undefined, checked, undefined, false, false);
         }
+    }
+
+    async function handleViewPreviousClientJobs() {
+        setSearchMode("manual");
+        setSearch("");
+        setSelectedCountries([]);
+        setSelectedSkills([]);
+        setBudgetMin("");
+        setBudgetMax("");
+        setPaymentVerified("all");
+        setApplicantRange("all");
+        setPostedDays("all");
+        setSelectedSavedFilter("");
+        setPreviousClientFirst(false);
+        setPreviousClientsOnly(true);
+        setFixedPriceFirst(false);
+        setHourlyPriceFirst(false);
+        setSortColumn(null);
+        setSortDirection("desc");
+        setCurrentPage(1);
+        setPageCursors({ 1: "0" });
+        await searchJobs(1, "0", "", false, [], true, true);
     }
 
     function openAddOptionModal() {
@@ -1376,6 +1377,7 @@ export default function UpworkJobsPage() {
             if (previousClientFirst) {
                 params.set("previousClient", "true");
             }
+            if (previousClientsOnly) params.set("previousClientsOnly", "true");
 
             const allJobs: Job[] = [];
             const seenJobIds = new Set<string>();
@@ -1704,6 +1706,7 @@ export default function UpworkJobsPage() {
     function getFilterSummary() {
 
         const items: string[] = [];
+        if (previousClientFirst) items.push("Previous clients");
         if (selectedCountries.length) {
             items.push(
                 `Country: ${selectedCountries.join(", ")}`
@@ -2249,13 +2252,23 @@ font-semibold text-blue-700
                     <section className="bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
                         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2 px-4 py-2.5 border-b border-gray-200">
                             <div>
-                                <h2 className="text-base font-semibold text-[#101828]">Latest Opportunities</h2>
+                                <h2 className="text-base font-semibold text-[#101828]">{previousClientsOnly ? "Previous Client Opportunities" : "Latest Opportunities"}</h2>
                                 <p className="text-gray-400 text-[12px] mt-0.5">
                                     {!hasSearched ? "Search jobs to view opportunities" : total > 0 ? `Showing ${from}-${to} of ${total} available jobs` : "No jobs found"}
                                 </p>
+                                {previousClientsOnly && sourceLimited && <p className="text-xs text-amber-700">Results may be incomplete: Upwork search limit reached.</p>}
                             </div>
 
                             <div className="flex flex-wrap items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => void handleViewPreviousClientJobs()}
+                                    disabled={loading || optionsLoading || exporting}
+                                    className="rounded-md bg-[#108A00] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0C6B00] disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {previousClientsOnly ? "Refresh Previous Client Jobs" : "View All Previous Client Jobs"}
+                                </button>
+                                {previousClientsOnly && <button type="button" disabled={loading} onClick={() => { setPreviousClientsOnly(false); void searchJobs(1, "0", undefined, false, undefined, false, false); }} className="rounded-md border px-3 py-1.5 text-xs font-semibold text-gray-800">Back to All Jobs</button>}
                                 <button
                                     type="button"
                                     onClick={() => setShowExportModal(true)}
@@ -2570,6 +2583,8 @@ font-semibold text-blue-700
 
                                                     <td className="px-1.5 py-2 align-top">
                                                         <div className="flex flex-col gap-0 text-[11px] leading-[15px]">
+                                                            {job.freelancerClientRelation?.companyName && <span className="font-semibold text-blue-700 break-words">{job.freelancerClientRelation.companyName}</span>}
+                                                            {job.freelancerClientRelation?.lastContractTitle && <span className="text-green-700 break-words">Previous contract: {job.freelancerClientRelation.lastContractTitle}</span>}
                                                             <span className="text-gray-900">
                                                                 {job.client?.totalPostedJobs ?? 0} {(job.client?.totalPostedJobs ?? 0) === 1 ? "job" : "jobs"} posted
                                                             </span>

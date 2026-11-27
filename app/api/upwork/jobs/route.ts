@@ -510,7 +510,8 @@ function matchesAllFilters(
 async function fetchBatch(
   searchExpression: string,
   first: number,
-  after: string
+  after: string,
+  previousClientsOnly = false
 ): Promise<GraphQLResult> {
   const filter: Record<string, unknown> = {
     pagination_eq: {
@@ -518,6 +519,7 @@ async function fetchBatch(
       after
     }
   };
+  if (previousClientsOnly) filter.previousClients_eq = true;
   if (searchExpression.trim()) {
     filter.searchExpression_eq =
       searchExpression.trim();
@@ -548,13 +550,14 @@ async function fetchBatch(
 
 async function fetch50Jobs(
   searchExpression: string,
-  after: string
+  after: string,
+  previousClientsOnly = false
 ): Promise<GraphQLResult> {
   try {
     return await fetchBatch(
       searchExpression,
       PAGE_SIZE,
-      after
+      after, previousClientsOnly
     );
   } catch (error) {
     if (!isTransformTimeout(error))
@@ -564,7 +567,7 @@ async function fetch50Jobs(
       await fetchBatch(
         searchExpression,
         25,
-        after
+        after, previousClientsOnly
       );
     const firstEdges =
       firstBatch.edges || [];
@@ -582,7 +585,7 @@ async function fetch50Jobs(
       await fetchBatch(
         searchExpression,
         25,
-        firstCursor
+        firstCursor, previousClientsOnly
       );
     return {
       totalCount: Number(
@@ -609,9 +612,9 @@ async function fetch50Jobs(
 
 /* ========================= FETCH ALL RESULTS ========================= */
 
-async function fetchAllJobs(searchExpression: string) {
+async function fetchAllJobs(searchExpression: string, previousClientsOnly = false) {
   const cacheKey =
-    "preferred-location-v3-limit-5000:" + searchExpression.trim().toLowerCase();
+    "preferred-location-v4-limit-5000:" + String(previousClientsOnly) + ":" + searchExpression.trim().toLowerCase();
   const cached = allJobsCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return {
@@ -635,7 +638,7 @@ async function fetchAllJobs(searchExpression: string) {
     const result =
       await fetch50Jobs(
         searchExpression,
-        cursor
+        cursor, previousClientsOnly
       );
     upstreamTotal =
       Number(
@@ -723,6 +726,8 @@ async function formatJob(edge: any) {
     ciphertext:
       job.ciphertext || "",
     preferredQualifications,
+    isPreviousClient: Boolean(job.freelancerClientRelation),
+    freelancerClientRelation: job.freelancerClientRelation ?? null,
     applied:
       Boolean(job.applied),
     premium:
@@ -893,6 +898,7 @@ export async function GET(request: NextRequest) {
       searchParams.get(
         "previousClient"
       ) === "true";
+    const previousClientsOnly = searchParams.get("previousClientsOnly") === "true";
     const options: SearchOptions = {
       countries,
       skills,
@@ -904,13 +910,16 @@ export async function GET(request: NextRequest) {
       postedDays,
       previousClient
     };
-    const {
-      edges: allEdges,
-      upstreamTotal
-    } =
-      await fetchAllJobs(
-        searchExpression
-      );
+    let nativePreviousFilter = previousClientsOnly;
+    let source;
+    try {
+      source = await fetchAllJobs(searchExpression, nativePreviousFilter);
+    } catch (error) {
+      if (!previousClientsOnly || !/previousClients_eq/i.test(getErrorMessage(error)) || !/not defined|unknown|not supported|does not exist/i.test(getErrorMessage(error))) throw error;
+      nativePreviousFilter = false;
+      source = await fetchAllJobs(searchExpression);
+    }
+    const { edges: allEdges, upstreamTotal } = source;
     let filteredEdges =
       allEdges.filter(
         edge =>
@@ -919,6 +928,9 @@ export async function GET(request: NextRequest) {
             options
           )
       );
+    if (previousClientsOnly) {
+      filteredEdges = filteredEdges.filter(edge => Boolean(edge?.node?.freelancerClientRelation));
+    }
     if (previousClient) {
       filteredEdges = [
         ...filteredEdges
@@ -953,6 +965,9 @@ export async function GET(request: NextRequest) {
       success: true,
       jobs,
       total,
+      previousClientsOnly,
+      nativePreviousFilter,
+      sourceLimited: allEdges.length >= MAX_RESULTS || upstreamTotal > allEdges.length,
       sourceTotal:
         upstreamTotal,
       loadedSourceJobs:
