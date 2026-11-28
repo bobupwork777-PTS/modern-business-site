@@ -1,22 +1,532 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 const INITIAL: Record<string, Record<string, string[]>> = {
-    HubSpot: { 'CRM setup & migration': ['crm setup', 'migration', 'pipeline', 'custom properties', 'data hygiene'], 'Automation & workflows': ['workflow', 'automation', 'lead scoring', 'lead routing'], 'API & integrations': ['api', 'webhook', 'integration', 'sync'], 'Email & lead generation': ['email marketing', 'lead generation', 'sequence', 'nurtur', 'campaign'], 'Reporting & analytics': ['reporting', 'dashboard', 'attribution', 'analytics'], 'CMS & landing pages': ['landing page', 'cms', 'hubspot website'] },
-    n8n: { 'AI agents': ['ai agent', 'llm', 'openai', 'rag'], 'API integration': ['api', 'webhook', 'http request'], 'CRM automation': ['crm', 'hubspot', 'salesforce'], 'Lead generation': ['lead generation', 'outreach', 'enrichment'], 'Document processing': ['document', 'pdf', 'ocr'] },
-    GoHighLevel: { 'Funnels & websites': ['funnel', 'landing page', 'website'], 'CRM & workflows': ['crm', 'workflow', 'automation'], 'AI voice agents': ['voice agent', 'voice ai', 'retell', 'vapi'], 'Snapshots & SaaS': ['snapshot', 'saas', 'sub-account'] },
-    'Make.com': { 'API & webhooks': ['api', 'webhook'], 'Data synchronization': ['sync', 'data mapping'], 'CRM automation': ['crm', 'hubspot'], 'AI workflows': ['ai', 'openai', 'llm'] },
-    'Wix Studio': { 'Responsive design': ['responsive', 'design', 'redesign'], 'Velo development': ['velo', 'custom code', 'javascript'], 'CMS': ['cms', 'dynamic page', 'collection'], 'E-commerce': ['ecommerce', 'e-commerce', 'store'], 'Integrations': ['api', 'integration'] },
-    Webflow: { 'Design & development': ['design', 'figma', 'development'], 'CMS': ['cms', 'collection'], 'Animations': ['animation', 'interaction', 'gsap'], 'Custom code & integration': ['custom code', 'api', 'integration', 'memberstack'], 'Finsweet': ['finsweet'] },
-    Shopify: { 'Theme & Liquid': ['theme', 'liquid'], 'Store design': ['store design', 'redesign', 'figma'], 'Apps & integrations': ['app integration', 'api', 'webhook'], 'CRO': ['conversion', 'cro', 'optimization'] },
-    WordPress: { 'Elementor': ['elementor'], 'WooCommerce': ['woocommerce'], 'Plugins & custom development': ['plugin', 'php', 'custom code'], 'Migration & performance': ['migration', 'speed', 'performance'] },
-    Squarespace: { 'Design': ['design', 'redesign'], 'E-commerce': ['commerce', 'store'], 'Custom code': ['custom code', 'css', 'javascript'] },
-    Zapier: { 'CRM integration': ['crm', 'hubspot'], 'Workflow automation': ['workflow', 'automation', 'zap'], 'API & webhooks': ['api', 'webhook'] },
-    'AI Agents': { 'RAG & knowledge bases': ['rag', 'knowledge base', 'vector'], 'Voice agents': ['voice', 'retell', 'vapi'], 'Chatbots': ['chatbot', 'assistant'], 'Tool integration': ['mcp', 'tool calling', 'api'], 'Business automation': ['automation', 'workflow'] },
-    MCP: { 'Server development': ['mcp server', 'model context protocol'], 'Tool integration': ['tool', 'integration', 'api'], 'AI agents': ['agent', 'llm'] },
-    Lovable: { 'MVP development': ['mvp', 'prototype'], 'Supabase': ['supabase', 'database'], 'Bug fixing': ['bug', 'fix', 'debug'], 'Deployment': ['deploy', 'vercel'] },
-    Framer: { 'Design & Figma': ['design', 'figma'], 'CMS': ['cms'], 'Animation': ['animation', 'interaction'], 'Custom components': ['component', 'code'] },
-    Bubble: { 'SaaS & MVP': ['saas', 'mvp'], 'Database & workflows': ['database', 'workflow'], 'API integration': ['api', 'integration'] },
-};
+
+    // ==========================================
+    // HUBSPOT
+    // ==========================================
+
+        HubSpot: {
+            'CRM setup & migration': [
+                'crm setup',
+                'migration',
+                'pipeline',
+                'custom properties',
+                'data hygiene'
+            ],
+            'Automation & workflows': [
+                'workflow',
+                'automation',
+                'lead scoring',
+                'lead routing'
+            ],
+            'API & integrations': [
+                'api',
+                'webhook',
+                'integration',
+                'sync'
+            ],
+            'Email & lead generation': [
+                'email marketing',
+                'lead generation',
+                'sequence',
+                'nurtur',
+                'campaign'
+            ],
+            'Reporting & analytics': [
+                'reporting',
+                'dashboard',
+                'attribution',
+                'analytics'
+            ],
+            'CMS & landing pages': [
+                'landing page',
+                'cms',
+                'hubspot website'
+            ]
+        },
+
+
+        // ==========================================
+        // N8N
+        // ==========================================
+
+        n8n: {
+            'AI agents': [
+                'ai agent',
+                'llm',
+                'openai',
+                'rag'
+            ],
+            'API integration': [
+                'api',
+                'webhook',
+                'http request'
+            ],
+            'CRM automation': [
+                'crm',
+                'hubspot',
+                'salesforce'
+            ],
+            'Lead generation': [
+                'lead generation',
+                'outreach',
+                'enrichment'
+            ],
+            'Document processing': [
+                'document',
+                'pdf',
+                'ocr'
+            ]
+        },
+
+
+        // ==========================================
+        // GOHIGHLEVEL
+        // ==========================================
+
+        GoHighLevel: {
+            'Funnels & websites': [
+                'funnel',
+                'landing page',
+                'website'
+            ],
+            'CRM & workflows': [
+                'crm',
+                'workflow',
+                'automation'
+            ],
+            'AI voice agents': [
+                'voice agent',
+                'voice ai',
+                'retell',
+                'vapi'
+            ],
+            'Snapshots & SaaS': [
+                'snapshot',
+                'saas',
+                'sub-account'
+            ]
+        },
+
+
+        // ==========================================
+        // MAKE.COM
+        // ==========================================
+
+        'Make.com': {
+            'API & webhooks': [
+                'api',
+                'webhook'
+            ],
+            'Data synchronization': [
+                'sync',
+                'data mapping'
+            ],
+            'CRM automation': [
+                'crm',
+                'hubspot'
+            ],
+            'AI workflows': [
+                'ai',
+                'openai',
+                'llm'
+            ]
+        },
+
+
+        // ==========================================
+        // WIX STUDIO
+        // ==========================================
+
+        'Wix Studio': {
+            'Responsive design': [
+                'responsive',
+                'design',
+                'redesign'
+            ],
+            'Velo development': [
+                'velo',
+                'custom code',
+                'javascript'
+            ],
+            'CMS': [
+                'cms',
+                'dynamic page',
+                'collection'
+            ],
+            'E-commerce': [
+                'ecommerce',
+                'e-commerce',
+                'store'
+            ],
+            'Integrations': [
+                'api',
+                'integration'
+            ]
+        },
+
+
+        // ==========================================
+        // WEBFLOW
+        // ==========================================
+
+        Webflow: {
+            'Design & development': [
+                'design',
+                'figma',
+                'development'
+            ],
+            'CMS': [
+                'cms',
+                'collection'
+            ],
+            'Animations': [
+                'animation',
+                'interaction',
+                'gsap'
+            ],
+            'Custom code & integration': [
+                'custom code',
+                'api',
+                'integration',
+                'memberstack'
+            ],
+            'Finsweet': [
+                'finsweet'
+            ]
+        },
+
+
+        // ==========================================
+        // SHOPIFY
+        // ==========================================
+
+        Shopify: {
+            'Theme & Liquid': [
+                'theme',
+                'liquid'
+            ],
+            'Store design': [
+                'store design',
+                'redesign',
+                'figma'
+            ],
+            'Apps & integrations': [
+                'app integration',
+                'api',
+                'webhook'
+            ],
+            'CRO': [
+                'conversion',
+                'cro',
+                'optimization'
+            ]
+        },
+
+
+        // ==========================================
+        // WORDPRESS
+        // ==========================================
+
+        WordPress: {
+            'Elementor': [
+                'elementor'
+            ],
+            'WooCommerce': [
+                'woocommerce'
+            ],
+            'Plugins & custom development': [
+                'plugin',
+                'php',
+                'custom code'
+            ],
+            'Migration & performance': [
+                'migration',
+                'speed',
+                'performance'
+            ]
+        },
+
+
+        // ==========================================
+        // SQUARESPACE
+        // ==========================================
+
+        Squarespace: {
+            'Design': [
+                'design',
+                'redesign'
+            ],
+            'E-commerce': [
+                'commerce',
+                'store'
+            ],
+            'Custom code': [
+                'custom code',
+                'css',
+                'javascript'
+            ]
+        },
+
+
+        // ==========================================
+        // ZAPIER
+        // ==========================================
+
+        Zapier: {
+            'CRM integration': [
+                'crm',
+                'hubspot'
+            ],
+            'Workflow automation': [
+                'workflow',
+                'automation',
+                'zap'
+            ],
+            'API & webhooks': [
+                'api',
+                'webhook'
+            ]
+        },
+
+
+        // ==========================================
+        // AI AGENTS
+        // ==========================================
+
+        'AI Agents': {
+            'RAG & knowledge bases': [
+                'rag',
+                'knowledge base',
+                'vector'
+            ],
+            'Voice agents': [
+                'voice',
+                'retell',
+                'vapi'
+            ],
+            'Chatbots': [
+                'chatbot',
+                'assistant'
+            ],
+            'Tool integration': [
+                'mcp',
+                'tool calling',
+                'api'
+            ],
+            'Business automation': [
+                'automation',
+                'workflow'
+            ]
+        },
+
+
+        // ==========================================
+        // MCP
+        // ==========================================
+
+        MCP: {
+            'Server development': [
+                'mcp server',
+                'model context protocol'
+            ],
+            'Tool integration': [
+                'tool',
+                'integration',
+                'api'
+            ],
+            'AI agents': [
+                'agent',
+                'llm'
+            ]
+        },
+
+
+        // ==========================================
+        // LOVABLE
+        // ==========================================
+
+        Lovable: {
+            'MVP development': [
+                'mvp',
+                'prototype'
+            ],
+            'Supabase': [
+                'supabase',
+                'database'
+            ],
+            'Bug fixing': [
+                'bug',
+                'fix',
+                'debug'
+            ],
+            'Deployment': [
+                'deploy',
+                'vercel'
+            ]
+        },
+
+
+        // ==========================================
+        // FRAMER
+        // ==========================================
+
+        Framer: {
+            'Design & Figma': [
+                'design',
+                'figma'
+            ],
+            'CMS': [
+                'cms'
+            ],
+            'Animation': [
+                'animation',
+                'interaction'
+            ],
+            'Custom components': [
+                'component',
+                'code'
+            ]
+        },
+
+
+        // ==========================================
+        // BUBBLE
+        // ==========================================
+
+        Bubble: {
+            'SaaS & MVP': [
+                'saas',
+                'mvp'
+            ],
+            'Database & workflows': [
+                'database',
+                'workflow'
+            ],
+            'API integration': [
+                'api',
+                'integration'
+            ]
+        },
+
+
+        // ==========================================
+        // REACT
+        // ==========================================
+
+        React: {
+            'Frontend development': [
+                'frontend',
+                'front-end',
+                'react.js',
+                'reactjs',
+                'ui development',
+                'component development'
+            ],
+            'Next.js development': [
+                'next.js',
+                'nextjs',
+                'app router',
+                'server components',
+                'ssr',
+                'static generation'
+            ],
+            'TypeScript & JavaScript': [
+                'typescript',
+                'javascript',
+                'es6'
+            ],
+            'State management': [
+                'redux',
+                'zustand',
+                'context api',
+                'react query',
+                'tanstack query',
+                'state management'
+            ],
+            'UI design & styling': [
+                'tailwind',
+                'css',
+                'material ui',
+                'shadcn',
+                'responsive',
+                'figma',
+                'bootstrap'
+            ],
+            'API & backend integration': [
+                'api',
+                'rest api',
+                'graphql',
+                'websocket',
+                'backend',
+                'node.js',
+                'express'
+            ],
+            'Full-stack development': [
+                'full stack',
+                'full-stack',
+                'fullstack',
+                'mern',
+                'mongodb',
+                'postgresql',
+                'supabase',
+                'firebase'
+            ],
+            'Authentication & security': [
+                'authentication',
+                'authorization',
+                'oauth',
+                'jwt',
+                'nextauth',
+                'clerk',
+                'security'
+            ],
+            'SaaS & dashboard development': [
+                'saas',
+                'dashboard',
+                'admin panel',
+                'web application',
+                'mvp',
+                'crm'
+            ],
+            'E-commerce & payments': [
+                'e-commerce',
+                'ecommerce',
+                'stripe',
+                'paypal',
+                'checkout',
+                'payment integration'
+            ],
+            'Bug fixing & optimization': [
+                'bug',
+                'debugging',
+                'performance',
+                'optimization',
+                'refactoring',
+                'code review'
+            ],
+            'AI & automation integration': [
+                'openai',
+                'chatgpt',
+                'ai agent',
+                'llm',
+                'automation',
+                'mcp',
+                'rag'
+            ],
+            'Testing & deployment': [
+                'jest',
+                'vitest',
+                'playwright',
+                'cypress',
+                'vercel',
+                'docker',
+                'ci/cd',
+                'deployment'
+            ]
+        }
+    };
 type Job = {
     id?: string;
     ciphertext?: string;
@@ -54,6 +564,61 @@ type Store = {
 // ==========================================
 
 const KEY = 'phoenix-tech-watchlist-v1';
+const COOLDOWN_KEY = `${KEY}:cooldown-until`;
+const REQUEST_DELAY_MS = 2000;
+const DEFAULT_COOLDOWN_MS = 60000;
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+class RateLimitError extends Error {
+    constructor(public retryAfterMs: number) {
+        super('Upwork API rate limit reached.');
+        this.name = 'RateLimitError';
+    }
+}
+
+function retryDelay(header: string | null): number {
+    if (header !== null && header.trim() !== '') {
+        const seconds = Number(header);
+        const ms = Number.isFinite(seconds)
+            ? seconds * 1000
+            : Date.parse(header) - Date.now();
+        if (Number.isFinite(ms)) return Math.max(1000, ms);
+    }
+    return DEFAULT_COOLDOWN_MS;
+}
+
+function savedCooldown(): number {
+    try {
+        const value = Number(localStorage.getItem(COOLDOWN_KEY));
+        return Number.isFinite(value) ? Math.max(0, value) : 0;
+    } catch {
+        return 0;
+    }
+}
+
+async function fetchWatchlistPage(q: URLSearchParams, stack: string, page: number) {
+    await sleep(REQUEST_DELAY_MS);
+    const res = await fetch('/api/upwork/jobs?' + q, { cache: 'no-store' });
+    const detail = await res.text();
+    let raw: any;
+    try { raw = JSON.parse(detail); } catch { raw = null; }
+    const error = String(raw?.error ?? raw?.message ?? '');
+
+    // The backend currently wraps upstream 429 responses as HTTP 500.
+    if (res.status === 429 || ((!res.ok || raw?.success === false) && /\b429\b|too many requests|rate limit/i.test(error || detail))) {
+        console.warn(`${stack}: rate limited on page ${page}`);
+        throw new RateLimitError(retryDelay(res.headers.get('Retry-After')));
+    }
+    if (!res.ok || raw?.success === false || raw === null) {
+        console.error(`${stack} API error (page ${page}):`, error || `HTTP ${res.status}`);
+        throw new Error(error || `HTTP ${res.status} or invalid JSON on page ${page}`);
+    }
+    return raw;
+}
+
 
 const EMPTY: Store = {
     stacks: Object.keys(INITIAL),
@@ -216,6 +781,25 @@ export default function TechWatchlist() {
     const [status, setStatus] = useState('');
     const [sort, setSort] = useState('jobs');
     const [errors, setErrors] = useState<string[]>([]);
+    const [cooldownUntil, setCooldownUntil] = useState(0);
+    const [cooldownSeconds, setCooldownSeconds] = useState(0);
+    const scanLock = useRef(false);
+    const cooldownRef = useRef(0);
+
+    useEffect(() => {
+        const sync = () => {
+            cooldownRef.current = Math.max(cooldownRef.current, savedCooldown());
+            setCooldownUntil(cooldownRef.current);
+            setCooldownSeconds(Math.max(0, Math.ceil((cooldownRef.current - Date.now()) / 1000)));
+        };
+        sync();
+        const timer = window.setInterval(sync, 1000);
+        window.addEventListener('storage', sync);
+        return () => {
+            window.clearInterval(timer);
+            window.removeEventListener('storage', sync);
+        };
+    }, []);
 
 
     // ==========================================
@@ -423,141 +1007,152 @@ export default function TechWatchlist() {
     // ==========================================
 
     async function scan(stacks: string[]) {
-
+        if (scanLock.current || !ready) return;
+        const blockedUntil = Math.max(cooldownRef.current, savedCooldown());
+        if (blockedUntil > Date.now()) {
+            setStatus('Upwork rate-limit cooldown is active.');
+            return;
+        }
+        scanLock.current = true;
         setBusy(true);
         setErrors([]);
 
         const failures: string[] = [];
+        const pageSize = 50;
+        const maxPages = 200;
+        let rateLimited = false;
 
         try {
-
-            // Scan each technology individually
-
             for (const stack of stacks) {
+                const collected = new Map<string, Job>();
+                const seenCursors = new Set<string>();
+                const seenPages = new Set<string>();
+                let after = '0';
+                let loaded = 0;
+                let total: number | undefined;
+                let completed = false;
 
-                setStatus(`Searching ${stack}…`);
+                // Match the two skill selections shown in Job Monitoring.
+                // The route must support comma-separated skill names.
+                const isGHL = stack === 'GoHighLevel';
+                const search = isGHL
+                    ? { q: '', skills: 'GHL,Go High Level' }
+                    : { q: stack, skills: stack };
 
                 try {
-
-                    // Configure API query parameters
-
-                    const q = new URLSearchParams({
-                        first: '50',
-                        q: stack,
-                        skills: stack,
-                        after: '0',
-                        countries: '',
-                        paymentVerified: 'all',
-                        applicants: 'all',
-                        previousClient: 'false',
-                        postedDays: String(days)
-                    });
-
-
-                    // Fetch jobs from Upwork API route
-
-                    const res = await fetch(
-                        '/api/upwork/jobs?' + q,
-                        {
-                            cache: 'no-store'
+                    for (let page = 0; page < maxPages; page++) {
+                        if (seenCursors.has(after)) {
+                            throw new Error('Pagination cursor repeated. Check API route.');
                         }
-                    );
+                        seenCursors.add(after);
 
+                        setStatus(`Searching ${stack} — page ${page + 1}, ${loaded}${total !== undefined ? ` of ${total}` : ''} records loaded…`);
 
-                    // Validate API response
+                        const q = new URLSearchParams({
+                            first: String(pageSize),
+                            q: search.q,
+                            skills: search.skills,
+                            after,
+                            countries: '',
+                            paymentVerified: 'all',
+                            applicants: 'all',
+                            previousClient: 'false',
+                            postedDays: String(days)
+                        });
 
-                    if (!res.ok) {
-                        throw new Error(`HTTP ${res.status}`);
-                    }
+                        const raw = await fetchWatchlistPage(q, stack, page + 1);
+                        const jobs = unpack(raw);
+                        const containers = [raw, raw?.jobs, raw?.results, raw?.data, raw?.data?.jobs, raw?.data?.results, raw?.pagination, raw?.meta];
+                        const info = containers.map(x => x?.pageInfo ?? x?.pagination).find(Boolean);
+                        const totalValue = containers.map(x => x?.totalCount ?? x?.totalResults ?? x?.total).find(x => (typeof x === 'number' || (typeof x === 'string' && x.trim() !== '')) && Number.isFinite(Number(x)) && Number(x) >= 0);
+                        if (totalValue !== undefined) total = Number(totalValue);
 
-
-                    // Extract jobs from response
-
-                    const jobs = unpack(await res.json());
-
-
-                    // Filter relevant jobs
-
-                    const found = jobs.filter(j =>
-                        relevant(j, stack)
-                    );
-
-
-                    // Update stored job history
-
-                    setStore(old => {
-
-                        const entries = {
-                            ...old.entries
-                        };
-
-                        for (const job of found) {
-
-                            const id = keyOf(job);
-
-                            const prev = entries[id];
-
-                            entries[id] = {
-                                job,
-
-                                stacks: Array.from(
-                                    new Set([
-                                        ...(prev?.stacks || []),
-                                        stack
-                                    ])
-                                ),
-
-                                firstSeen:
-                                    prev?.firstSeen ||
-                                    new Date().toISOString()
-                            };
+                        const signature = JSON.stringify(jobs.map(keyOf).sort());
+                        if (jobs.length && seenPages.has(signature)) {
+                            throw new Error('API returned a repeated page; verify the after parameter.');
                         }
+                        seenPages.add(signature);
 
-
-                        // Update last scan timestamp
-
-                        return {
-                            ...old,
-                            entries,
-
-                            lastRun: {
-                                ...old.lastRun,
-                                [stack]: new Date().toISOString()
+                        // GoHighLevel is already filtered by the API skill query.
+                        // Preserve the existing relevance filter for other stacks.
+                        for (const job of jobs) {
+                            if (isGHL || relevant(job, stack)) {
+                                collected.set(keyOf(job), job);
                             }
-                        };
-                    });
+                        }
+                        loaded += jobs.length;
 
-
-                    // Check API pagination limit
-
-                    if (jobs.length >= 100) {
-                        failures.push(
-                            `${stack}: page limit reached; more jobs may exist.`
-                        );
+                        if (info?.hasNextPage === false || (!jobs.length && (total === undefined || loaded >= total))) {
+                            completed = true;
+                            break;
+                        }
+                        if (!jobs.length) {
+                            throw new Error(`API stopped after ${loaded} of ${total} records.`);
+                        }
+                        if (total !== undefined && loaded >= total && info?.hasNextPage !== true) {
+                            completed = true;
+                            break;
+                        }
+                        const next = info?.endCursor ?? info?.nextCursor ?? info?.nextOffset ?? raw?.nextCursor ?? raw?.nextOffset ?? raw?.data?.nextCursor ?? raw?.data?.nextOffset;
+                        if (next !== undefined && next !== null && String(next) !== '') {
+                            after = String(next);
+                        } else if (info?.hasNextPage === true || (total !== undefined && loaded < total) || jobs.length >= pageSize) {
+                            // Fallback for routes that accept numeric offsets.
+                            after = String(loaded);
+                        } else {
+                            completed = true;
+                            break;
+                        }
                     }
-
+                    if (!completed) {
+                        failures.push(`${stack}: reached the ${maxPages}-page safety limit; results are incomplete.`);
+                    }
                 } catch (e) {
-
-                    // Handle individual technology scan errors
-
-                    failures.push(
-                        `${stack}: ${
-                            e instanceof Error
-                                ? e.message
-                                : String(e)
-                        }`
-                    );
+                    if (e instanceof RateLimitError) {
+                        rateLimited = true;
+                        const until = Math.max(Date.now() + e.retryAfterMs, savedCooldown());
+                        cooldownRef.current = until;
+                        setCooldownUntil(until);
+                        setCooldownSeconds(Math.ceil((until - Date.now()) / 1000));
+                        try { localStorage.setItem(COOLDOWN_KEY, String(until)); } catch { /* In-memory cooldown remains active. */ }
+                        failures.push(`${stack}: Upwork rate limit reached. Remaining technologies skipped. Collected jobs preserved.`);
+                        break;
+                    }
+                    failures.push(`${stack}: ${e instanceof Error ? e.message : String(e)}`);
+                } finally {
+                    // Preserve historical records and successfully retrieved partial pages.
+                    if (collected.size || completed) {
+                        const scannedAt = new Date().toISOString();
+                        const found = Array.from(collected.values());
+                        setStore(old => {
+                            const entries = { ...old.entries };
+                            for (const job of found) {
+                                const id = keyOf(job);
+                                const prev = entries[id];
+                                entries[id] = {
+                                    job,
+                                    stacks: Array.from(new Set([...(prev?.stacks || []), stack])),
+                                    firstSeen: prev?.firstSeen || scannedAt
+                                };
+                            }
+                            return {
+                                ...old,
+                                entries,
+                                lastRun: completed ? { ...old.lastRun, [stack]: scannedAt } : old.lastRun
+                            };
+                        });
+                    }
+                    console.info('Watchlist scan', { stack, loaded, total, collected: collected.size, completed });
                 }
             }
-
         } finally {
-
-            // Reset scanning status
-
             setErrors(failures);
-
-            setStatus('Scan finished. Results are based on retrieved jobs only.');
-
+            setStatus(rateLimited
+                ? 'Scan stopped by Upwork rate limits. Retry after the cooldown; partial results were preserved.'
+                : failures.length
+                ? 'Scan finished with warnings. Successfully retrieved jobs were preserved.'
+                : 'Scan finished. Results are based on retrieved jobs only.');
+            scanLock.current = false;
             setBusy(false);
         }
     }
@@ -693,22 +1288,26 @@ export default function TechWatchlist() {
 
                       {/* Scan All Technologies */}
 
-                      <button
+                      {/* <button
                         className={`${btn} bg-blue-600 text-white`}
-                        disabled={!ready || busy}
+                        disabled={!ready || busy || cooldownSeconds > 0}
                         onClick={() => scan(store.stacks)}
                       >
-                        {busy ? 'Scanning…' : 'Scan all technologies'}
-                      </button>
+                        {busy ? 'Scanning…' : cooldownSeconds > 0 ? `Retry in ${cooldownSeconds}s` : 'Scan all technologies'}
+                      </button> */}
 
                       {/* Scan Selected Technology */}
 
                       <button
-                        className={`${btn} border`}
-                        disabled={!ready || busy}
-                        onClick={() => scan([selected])}
+                          className={`${btn} bg-blue-600 text-white`}
+                          disabled={!ready || busy || cooldownSeconds > 0}
+                          onClick={() => scan([selected])}
                       >
-                        Scan selected
+                          {busy
+                              ? 'Scanning…'
+                              : cooldownSeconds > 0
+                                  ? `Retry in ${cooldownSeconds}s`
+                                  : 'Scan selected'}
                       </button>
 
                       {/* Export History */}
@@ -771,6 +1370,12 @@ export default function TechWatchlist() {
                         'Scan to collect live job data. History is stored in this browser.'}
                     </p>
 
+
+                    {cooldownUntil > 0 && cooldownSeconds > 0 && (
+                      <p className="mt-1 text-xs text-amber-700">
+                        API cooldown: {cooldownSeconds} seconds remaining. Both scan buttons are temporarily disabled.
+                      </p>
+                    )}
 
                     {/* Error Messages */}
 
